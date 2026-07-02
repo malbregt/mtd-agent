@@ -13,7 +13,10 @@ class AgentAPIClient:
 
     @property
     def headers(self):
-        return {"X-API-Key": self.config.get("api_key")}
+        return {
+            "X-API-Key": self.config.get("api_key"),
+            "X-Instance-Key": self.config.get("instance_key")
+        }
 
     def register(self):
         """Registreer device bij platform, retourneert device_id."""

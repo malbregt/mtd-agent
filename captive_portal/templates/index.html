@@ -8,63 +8,38 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, sans-serif; background: #082B56; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .card { background: #fff; color: #1a1a1a; border-radius: 12px; padding: 32px; max-width: 420px; width: 100%; }
-    h1 { font-size: 1.4rem; color: #082B56; margin-bottom: 8px; }
+    h1 { font-size: 1.4rem; color: #082B56; margin-bottom: 6px; }
     p.sub { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 24px; }
-    .tab { flex: 1; padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; background: none; cursor: pointer; font-size: 0.85rem; color: #666; }
-    .tab.active { border-color: #082B56; color: #082B56; font-weight: 600; }
-    .panel { display: none; }
-    .panel.active { display: block; }
-    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #444; }
-    input, select { width: 100%; padding: 10px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; margin-bottom: 16px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #444; margin-top: 14px; }
+    input, select { width: 100%; padding: 10px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; }
     input:focus, select:focus { outline: none; border-color: #082B56; }
-    button.primary { width: 100%; padding: 12px; background: linear-gradient(135deg, #082B56, #0a9b6e); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
-    .wifi-section { border-top: 1px solid #eee; padding-top: 20px; margin-top: 4px; }
-    .wifi-section h3 { font-size: 0.95rem; color: #444; margin-bottom: 16px; }
+    .hint { font-size: 0.78rem; color: #888; margin-top: 4px; }
+    .wifi-section { border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px; }
+    .wifi-section h3 { font-size: 0.9rem; color: #444; margin-bottom: 4px; }
+    button.primary { margin-top: 24px; width: 100%; padding: 12px; background: linear-gradient(135deg, #082B56, #0a9b6e); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
     .status { margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 0.9rem; display: none; }
     .status.success { background: #d4edda; color: #155724; display: block; }
     .status.error { background: #f8d7da; color: #721c24; display: block; }
-    #qr-reader { margin-bottom: 16px; }
   </style>
 </head>
 <body>
 <div class="card">
   <h1>MTD Agent Setup</h1>
-  <p class="sub">Koppel dit apparaat aan jouw mijnthuisdata account.</p>
+  <p class="sub">Voer de sleutels in die je via het mijnthuisdata portaal hebt aangemaakt.</p>
 
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('apikey')">API Key</button>
-    <button class="tab" onclick="switchTab('login')">Inloggen</button>
-    <button class="tab" onclick="switchTab('qr')">QR Code</button>
-  </div>
+  <label>API key</label>
+  <input type="text" id="api-key" placeholder="ea_xxxxxxxxxxxxxxxx" autocomplete="off" autocorrect="off" spellcheck="false">
+  <p class="hint">Begint altijd met ea_ — te vinden in jouw portaalaccount.</p>
 
-  <!-- API Key -->
-  <div class="panel active" id="panel-apikey">
-    <label>API Key</label>
-    <input type="text" id="apikey-input" placeholder="mtd_xxxxxxxxxxxxxxxx">
-  </div>
+  <label>Instance key</label>
+  <input type="text" id="instance-key" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" autocorrect="off" spellcheck="false">
+  <p class="hint">Unieke sleutel van dit apparaat — aangemaakt in het portaal onder Apparaten.</p>
 
-  <!-- Login -->
-  <div class="panel" id="panel-login">
-    <label>E-mailadres</label>
-    <input type="email" id="login-email" placeholder="naam@voorbeeld.nl">
-    <label>Wachtwoord</label>
-    <input type="password" id="login-password">
-  </div>
-
-  <!-- QR -->
-  <div class="panel" id="panel-qr">
-    <p style="font-size:0.9rem;color:#666;margin-bottom:12px;">Scan de QR code uit de portal met je camera.</p>
-    <div id="qr-reader"></div>
-    <input type="text" id="qr-result" placeholder="Of voer de code handmatig in" style="display:none">
-  </div>
-
-  <!-- WiFi -->
   <div class="wifi-section">
     <h3>WiFi (optioneel bij kabelverbinding)</h3>
     <label>Netwerk</label>
     <select id="wifi-ssid">
-      <option value="">-- Laden... --</option>
+      <option value="">-- Geen WiFi (kabel) --</option>
     </select>
     <label>Wachtwoord</label>
     <input type="password" id="wifi-password" placeholder="Laat leeg voor open netwerk">
@@ -74,41 +49,12 @@
   <div class="status" id="status"></div>
 </div>
 
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
-  let activeTab = 'apikey';
-  let qrScanner = null;
-
-  function switchTab(tab) {
-    document.querySelectorAll('.tab').forEach((t, i) => {
-      t.classList.toggle('active', ['apikey','login','qr'][i] === tab);
-    });
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('panel-' + tab).classList.add('active');
-    activeTab = tab;
-
-    if (tab === 'qr' && !qrScanner) {
-      qrScanner = new Html5Qrcode("qr-reader");
-      qrScanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: 250 },
-        (text) => {
-          document.getElementById('qr-result').value = text;
-          document.getElementById('qr-result').style.display = 'block';
-          qrScanner.stop();
-        }
-      ).catch(() => {
-        document.getElementById('qr-result').style.display = 'block';
-      });
-    }
-  }
-
   async function loadNetworks() {
     try {
       const resp = await fetch('/api/networks');
       const data = await resp.json();
       const sel = document.getElementById('wifi-ssid');
-      sel.innerHTML = '<option value="">-- Geen WiFi (kabel) --</option>';
       data.networks.forEach(n => {
         sel.innerHTML += `<option value="${n}">${n}</option>`;
       });
@@ -118,26 +64,31 @@
   async function submit() {
     const status = document.getElementById('status');
     status.className = 'status';
-    status.textContent = '';
 
-    const payload = {
-      method: activeTab,
-      ssid: document.getElementById('wifi-ssid').value,
-      wifi_password: document.getElementById('wifi-password').value,
-    };
+    const apiKey = document.getElementById('api-key').value.trim();
+    const instanceKey = document.getElementById('instance-key').value.trim();
 
-    if (activeTab === 'apikey') payload.api_key = document.getElementById('apikey-input').value;
-    if (activeTab === 'login') {
-      payload.email = document.getElementById('login-email').value;
-      payload.password = document.getElementById('login-password').value;
+    if (!apiKey.startsWith('ea_')) {
+      status.className = 'status error';
+      status.textContent = '✗ API key moet beginnen met ea_';
+      return;
     }
-    if (activeTab === 'qr') payload.api_key = document.getElementById('qr-result').value;
+    if (!instanceKey) {
+      status.className = 'status error';
+      status.textContent = '✗ Instance key is verplicht';
+      return;
+    }
 
     try {
       const resp = await fetch('/api/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          api_key: apiKey,
+          instance_key: instanceKey,
+          ssid: document.getElementById('wifi-ssid').value,
+          wifi_password: document.getElementById('wifi-password').value
+        })
       });
       const data = await resp.json();
       if (resp.ok) {
