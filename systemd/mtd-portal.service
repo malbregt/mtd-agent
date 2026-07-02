@@ -1,0 +1,15 @@
+[Unit]
+Description=MTD Captive Portal
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/mtd-agent/captive_portal
+ExecStart=/opt/mtd-agent/venv/bin/python portal.py
+Restart=on-failure
+Environment=MTD_CONFIG=/opt/mtd-agent/config.json
+Environment=MTD_API_URL=https://api.mijnthuisdata.nl
+
+[Install]
+WantedBy=multi-user.target

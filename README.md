@@ -1,67 +1,69 @@
 # MTD Agent
 
-Edge agent voor het mijnthuisdata platform. Draait op een Raspberry Pi bij de klant thuis en leest lokale energie-APIs.
+Edge agent voor het [mijnthuisdata](https://mijnthuisdata.nl) platform. Draait op een Raspberry Pi bij de klant thuis en verzamelt lokale energiedata.
 
 ## Installatie
 
 Op een verse Raspberry Pi OS Lite installatie:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/malbregt/mtd-agent/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/malbregt/mtd-agent/main/install.sh | sudo bash
 ```
 
-## Configuratie
+**Eerste installatie:** de Pi start automatisch een hotspot `MTD-Setup`. Verbind hiermee en configureer het apparaat via de captive portal.
 
-Pas `/opt/mtd-agent/config.json` aan na installatie:
+**Update:** het script detecteert een bestaande installatie en herstart alleen de agent.
 
-```json
-{
-  "api_key": "jouw-mtd-api-key",
-  "integrations": [
-    {
-      "type": "homewizard_p1",
-      "name": "P1 Meter",
-      "host": "192.168.1.50"
-    }
-  ]
-}
-```
+## Onboarding
 
-Herstart daarna de service:
-
-```bash
-sudo systemctl restart mtd-agent
-```
-
-## Beheer
-
-```bash
-# Status
-sudo systemctl status mtd-agent
-
-# Logs volgen
-sudo journalctl -u mtd-agent -f
-
-# Handmatig herstarten
-sudo systemctl restart mtd-agent
-```
+1. Pi opgestart → hotspot `MTD-Setup` verschijnt
+2. Verbind met `MTD-Setup` (geen wachtwoord)
+3. Captive portal opent automatisch (of ga naar `192.168.4.1`)
+4. Kies methode: API Key / Inloggen / QR Code
+5. Vul eventueel WiFi netwerk in
+6. Klik "Apparaat koppelen"
+7. Pi herstart en verbindt met het platform
 
 ## Structuur
 
 ```
-agent/
-├── main.py                    # Entry point
-├── config.py                  # Config manager
-├── sync.py                    # SQLite cache + API sync
-└── integrations/
-    ├── base.py                # BaseIntegration
-    └── homewizard.py          # HomeWizard P1
+mtd-agent/
+├── install.sh                    # Bootstrap script
+├── requirements.txt
+├── config.example.json
+├── agent/
+│   ├── main.py                   # Entry point + hoofdloop
+│   ├── config.py                 # Config manager
+│   ├── api.py                    # Platform API client
+│   ├── sync.py                   # SQLite cache + sync
+│   ├── websocket_client.py       # WebSocket voor config push
+│   ├── plugin_manager.py         # Dynamisch laden van plugins
+│   ├── scanner.py                # Netwerkscan (mDNS + poortscan)
+│   └── integrations/
+│       ├── base.py               # BaseIntegration
+│       ├── homewizard.py         # HomeWizard P1 plugin
+│       └── enphase.py            # Enphase Envoy plugin
+├── captive_portal/
+│   ├── portal.py                 # Flask onboarding portal
+│   └── templates/
+│       └── index.html            # Portal UI
+├── systemd/
+│   ├── mtd-agent.service         # Agent service
+│   └── mtd-portal.service        # Portal service
+└── scripts/
+    └── setup-hotspot.sh          # WiFi hotspot instellen
 ```
 
-## Ondersteunde integraties
+## Plugins
 
-| Type | Status |
-|------|--------|
-| `homewizard_p1` | ✓ |
-| `enphase_envoy` | Gepland |
-| `dsmr` | Gepland |
+Plugins worden dynamisch geladen op basis van de config van het platform. Bij een nieuw apparaattype downloadt de Pi automatisch de benodigde plugin van GitHub.
+
+Elke plugin erft van `BaseIntegration` en implementeert de `poll()` methode.
+
+## Beheer
+
+```bash
+sudo systemctl status mtd-agent
+sudo journalctl -u mtd-agent -f
+sudo systemctl restart mtd-agent
+```

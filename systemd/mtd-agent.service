@@ -13,6 +13,8 @@ RestartSec=10
 Environment=MTD_CONFIG=/opt/mtd-agent/config.json
 Environment=MTD_DB=/opt/mtd-agent/cache.db
 Environment=MTD_API_URL=https://api.mijnthuisdata.nl
+Environment=MTD_WS_URL=wss://api.mijnthuisdata.nl/agent/ws
+Environment=MTD_PLUGIN_DIR=/opt/mtd-agent/agent/integrations
 
 [Install]
 WantedBy=multi-user.target

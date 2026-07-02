@@ -18,9 +18,19 @@ class ConfigManager:
                 self._config = json.load(f)
             logger.info("Config geladen")
         except FileNotFoundError:
-            logger.warning(f"Config niet gevonden op {CONFIG_PATH}, gebruik lege config")
+            logger.warning(f"Config niet gevonden op {CONFIG_PATH}")
         except json.JSONDecodeError as e:
             logger.error(f"Ongeldige config JSON: {e}")
 
+    def save(self, data: dict):
+        self._config.update(data)
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(self._config, f, indent=2)
+        logger.info("Config opgeslagen")
+
     def get(self, key, default=None):
         return self._config.get(key, default)
+
+    def set(self, key, value):
+        self._config[key] = value
+        self.save(self._config)

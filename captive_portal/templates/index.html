@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MTD Agent Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, sans-serif; background: #082B56; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .card { background: #fff; color: #1a1a1a; border-radius: 12px; padding: 32px; max-width: 420px; width: 100%; }
+    h1 { font-size: 1.4rem; color: #082B56; margin-bottom: 8px; }
+    p.sub { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+    .tab { flex: 1; padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; background: none; cursor: pointer; font-size: 0.85rem; color: #666; }
+    .tab.active { border-color: #082B56; color: #082B56; font-weight: 600; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #444; }
+    input, select { width: 100%; padding: 10px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 0.95rem; margin-bottom: 16px; }
+    input:focus, select:focus { outline: none; border-color: #082B56; }
+    button.primary { width: 100%; padding: 12px; background: linear-gradient(135deg, #082B56, #0a9b6e); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    .wifi-section { border-top: 1px solid #eee; padding-top: 20px; margin-top: 4px; }
+    .wifi-section h3 { font-size: 0.95rem; color: #444; margin-bottom: 16px; }
+    .status { margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 0.9rem; display: none; }
+    .status.success { background: #d4edda; color: #155724; display: block; }
+    .status.error { background: #f8d7da; color: #721c24; display: block; }
+    #qr-reader { margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>MTD Agent Setup</h1>
+  <p class="sub">Koppel dit apparaat aan jouw mijnthuisdata account.</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('apikey')">API Key</button>
+    <button class="tab" onclick="switchTab('login')">Inloggen</button>
+    <button class="tab" onclick="switchTab('qr')">QR Code</button>
+  </div>
+
+  <!-- API Key -->
+  <div class="panel active" id="panel-apikey">
+    <label>API Key</label>
+    <input type="text" id="apikey-input" placeholder="mtd_xxxxxxxxxxxxxxxx">
+  </div>
+
+  <!-- Login -->
+  <div class="panel" id="panel-login">
+    <label>E-mailadres</label>
+    <input type="email" id="login-email" placeholder="naam@voorbeeld.nl">
+    <label>Wachtwoord</label>
+    <input type="password" id="login-password">
+  </div>
+
+  <!-- QR -->
+  <div class="panel" id="panel-qr">
+    <p style="font-size:0.9rem;color:#666;margin-bottom:12px;">Scan de QR code uit de portal met je camera.</p>
+    <div id="qr-reader"></div>
+    <input type="text" id="qr-result" placeholder="Of voer de code handmatig in" style="display:none">
+  </div>
+
+  <!-- WiFi -->
+  <div class="wifi-section">
+    <h3>WiFi (optioneel bij kabelverbinding)</h3>
+    <label>Netwerk</label>
+    <select id="wifi-ssid">
+      <option value="">-- Laden... --</option>
+    </select>
+    <label>Wachtwoord</label>
+    <input type="password" id="wifi-password" placeholder="Laat leeg voor open netwerk">
+  </div>
+
+  <button class="primary" onclick="submit()">Apparaat koppelen</button>
+  <div class="status" id="status"></div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  let activeTab = 'apikey';
+  let qrScanner = null;
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', ['apikey','login','qr'][i] === tab);
+    });
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + tab).classList.add('active');
+    activeTab = tab;
+
+    if (tab === 'qr' && !qrScanner) {
+      qrScanner = new Html5Qrcode("qr-reader");
+      qrScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 250 },
+        (text) => {
+          document.getElementById('qr-result').value = text;
+          document.getElementById('qr-result').style.display = 'block';
+          qrScanner.stop();
+        }
+      ).catch(() => {
+        document.getElementById('qr-result').style.display = 'block';
+      });
+    }
+  }
+
+  async function loadNetworks() {
+    try {
+      const resp = await fetch('/api/networks');
+      const data = await resp.json();
+      const sel = document.getElementById('wifi-ssid');
+      sel.innerHTML = '<option value="">-- Geen WiFi (kabel) --</option>';
+      data.networks.forEach(n => {
+        sel.innerHTML += `<option value="${n}">${n}</option>`;
+      });
+    } catch(e) {}
+  }
+
+  async function submit() {
+    const status = document.getElementById('status');
+    status.className = 'status';
+    status.textContent = '';
+
+    const payload = {
+      method: activeTab,
+      ssid: document.getElementById('wifi-ssid').value,
+      wifi_password: document.getElementById('wifi-password').value,
+    };
+
+    if (activeTab === 'apikey') payload.api_key = document.getElementById('apikey-input').value;
+    if (activeTab === 'login') {
+      payload.email = document.getElementById('login-email').value;
+      payload.password = document.getElementById('login-password').value;
+    }
+    if (activeTab === 'qr') payload.api_key = document.getElementById('qr-result').value;
+
+    try {
+      const resp = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        status.className = 'status success';
+        status.textContent = '✓ ' + data.message;
+      } else {
+        status.className = 'status error';
+        status.textContent = '✗ ' + (data.error || 'Onbekende fout');
+      }
+    } catch(e) {
+      status.className = 'status error';
+      status.textContent = '✗ Verbindingsfout';
+    }
+  }
+
+  loadNetworks();
+</script>
+</body>
+</html>
