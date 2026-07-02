@@ -1,0 +1,10 @@
+{
+  "api_key": "jouw-mtd-api-key",
+  "integrations": [
+    {
+      "type": "homewizard_p1",
+      "name": "P1 Meter",
+      "host": "192.168.1.50"
+    }
+  ]
+}
