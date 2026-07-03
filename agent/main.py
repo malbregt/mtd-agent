@@ -24,6 +24,7 @@ VERSION = "1.0.0"
 HEARTBEAT_INTERVAL = 30
 CONFIG_POLL_INTERVAL = 60
 SCAN_INTERVAL = 3600  # elk uur
+DEFAULT_DELIVERY_INTERVAL = 900  # 15 minuten, fallback als backend geen waarde meestuurt
 
 
 def get_local_ip():
@@ -73,7 +74,7 @@ class Agent:
         remote_config = self.api.get_config()
         if remote_config:
             self._load_integrations(remote_config.get("integrations", []))
-            self.config.set("delivery_interval_seconds", remote_config.get("delivery_interval_seconds", 60))
+            self.config.set("delivery_interval_seconds", remote_config.get("delivery_interval_seconds", DEFAULT_DELIVERY_INTERVAL))
 
     async def _on_ws_message(self, data: dict, ws):
         """Verwerk binnenkomend WebSocket bericht."""
@@ -198,7 +199,7 @@ class Agent:
                     self._last_poll[iid] = now
 
             # Sync cache naar platform
-            sync_interval = self.config.get("delivery_interval_seconds", 60)
+            sync_interval = self.config.get("delivery_interval_seconds", DEFAULT_DELIVERY_INTERVAL)
             if now - last_sync >= sync_interval:
                 self.sync.flush()
                 last_sync = now
