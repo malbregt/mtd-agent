@@ -21,7 +21,7 @@ class HomewizardWaterIntegration(BaseIntegration):
             timestamp = datetime.now(timezone.utc).isoformat()
             self.sync.store(self.integration_id, timestamp, data)
             self.report_ok()
-            logger.debug(f"Watermeter: {data.get('active_liter_lpm')} l/min, totaal {data.g>
+            logger.debug(f"Watermeter: {data.get('active_liter_lpm')} l/min, totaal {data.get('total_liter_m3')} m3")
         except requests.RequestException as e:
             logger.warning(f"Watermeter fout: {e}")
             self.report_error(str(e))
