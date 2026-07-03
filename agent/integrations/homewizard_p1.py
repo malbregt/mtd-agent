@@ -48,9 +48,9 @@ class HomewizardP1Integration(BaseIntegration):
             resp.raise_for_status()
             data = resp.json()
             timestamp = datetime.now(timezone.utc).isoformat()
-            self.sync.store(self.integration_id, timestamp, data, self.customer_integration_id)
+            self.store_reading(timestamp, data)
             self.report_ok()
             logger.debug(f"HomeWizard: {data.get('active_power_w')}W")
-        except requests.RequestException as e:
+        except (requests.RequestException, RuntimeError) as e:
             logger.warning(f"HomeWizard fout: {e}")
             self.report_error(str(e))

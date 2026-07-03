@@ -152,6 +152,7 @@ class Agent:
                 "success": True,
                 "response_ms": int((time.time() - start) * 1000),
                 "device": device or {},
+                "error": None,
             }
         except Exception as e:
             logger.warning(f"Integratietest mislukt ({integration_id}): {e}")
@@ -160,6 +161,7 @@ class Agent:
                 "request_id": request_id,
                 "success": False,
                 "response_ms": 0,
+                "device": {},
                 "error": str(e),
             }
 

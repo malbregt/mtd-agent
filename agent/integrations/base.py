@@ -19,8 +19,19 @@ class BaseIntegration(ABC):
 
     @abstractmethod
     def poll(self):
-        """Lees data en sla op via sync.store()"""
+        """Lees data en sla op via store_reading()"""
         pass
+
+    def store_reading(self, timestamp: str, data):
+        """Sla een reading op, met validatie dat het apparaat echt data teruggaf.
+
+        Sommige apparaten antwoorden bij een fout (verlopen token, verkeerd IP dat
+        toevallig een ander apparaat raakt, etc.) met HTTP 200 en een foutobject
+        i.p.v. een foutstatus. Zonder deze check komt zo'n foutobject de cache in
+        en vergiftigt het de hele sync-batch voor alle integraties tegelijk."""
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Onverwacht antwoord (geen dict): {data}")
+        self.sync.store(self.integration_id, timestamp, data, self.customer_integration_id)
 
     def report_error(self, message: str):
         self._error_count += 1
