@@ -20,16 +20,17 @@ class WebSocketClient:
         self._running = True
         while self._running:
             try:
-                api_key = self.config.get("api_key")
-                if not api_key:
-                    logger.warning("Geen API key, WebSocket uitgesteld")
+                token = self.config.get("instance_key")
+                if not token:
+                    logger.warning("Geen instance key, WebSocket uitgesteld")
                     await asyncio.sleep(RECONNECT_DELAY)
                     continue
 
                 logger.info("WebSocket verbinding openen...")
+                full_url = f"{WS_URL}?token={token}"
                 async with websockets.connect(
-                    WS_URL,
-                    extra_headers={"X-API-Key": api_key}
+                    full_url,
+                    extra_headers={"X-Api-Key": token}
                 ) as ws:
                     logger.info("WebSocket verbonden")
                     async for message in ws:
