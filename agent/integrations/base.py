@@ -26,6 +26,15 @@ class BaseIntegration(ABC):
             self.api.send_event(self.integration_id, "info", "Integratie hersteld")
 
     @staticmethod
+    def normalize_host(host: str, default_scheme: str = "http") -> str:
+        """Zorg dat host altijd een schema heeft, ongeacht of de gebruiker het zelf invulde."""
+        if not host:
+            return host
+        if "://" not in host:
+            return f"{default_scheme}://{host}"
+        return host
+
+    @staticmethod
     def test_connection(config: dict) -> dict:
         """Voer eenmalige verbindingstest uit met de gegeven config (nog niet opgeslagen).
 

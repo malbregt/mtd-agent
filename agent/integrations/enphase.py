@@ -72,7 +72,7 @@ class EnphaseIntegration(BaseIntegration):
 
     @staticmethod
     def test_connection(config: dict) -> dict:
-        host = config.get("host")
+        host = BaseIntegration.normalize_host(config.get("host"), default_scheme="https")
         username = config.get("username")
         password = config.get("password")
         serial = config.get("serial")
@@ -89,7 +89,7 @@ class EnphaseIntegration(BaseIntegration):
 
     def poll(self):
         cfg = self.config.get("config", self.config)
-        host = cfg.get("host")
+        host = self.normalize_host(cfg.get("host"), default_scheme="https")
         if not host:
             logger.error("Geen host geconfigureerd voor Enphase")
             return

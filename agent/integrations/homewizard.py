@@ -14,9 +14,10 @@ class HomewizardIntegration(BaseIntegration):
         if not host:
             logger.error("Geen host geconfigureerd voor HomeWizard")
             return
+        host = self.normalize_host(host)
 
         try:
-            resp = requests.get(f"http://{host}/api/v1/data", timeout=5)
+            resp = requests.get(f"{host}/api/v1/data", timeout=5)
             resp.raise_for_status()
             data = resp.json()
             timestamp = datetime.now(timezone.utc).isoformat()
