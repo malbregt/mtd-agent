@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import socket
@@ -74,7 +75,7 @@ class Agent:
         if remote_config:
             self._load_integrations(remote_config.get("integrations", []))
 
-    async def _on_ws_message(self, data: dict):
+    async def _on_ws_message(self, data: dict, ws):
         """Verwerk binnenkomend WebSocket bericht."""
         msg_type = data.get("type")
         logger.info(f"WebSocket bericht: {msg_type}")
@@ -96,6 +97,44 @@ class Agent:
         elif msg_type == "update":
             logger.info(f"OTA update beschikbaar: {data.get('version')}")
             os.system("/opt/mtd-agent/install.sh")
+
+        elif msg_type == "test_integration":
+            asyncio.create_task(self._handle_test_integration(data, ws))
+
+    async def _handle_test_integration(self, data: dict, ws):
+        """Test een integratieconfig zonder deze op te slaan en stuur test_result terug."""
+        request_id = data.get("request_id")
+        integration_id = data.get("integration_id")
+        config = data.get("config", {})
+        loop = asyncio.get_event_loop()
+        start = time.time()
+
+        try:
+            cls = self.plugins.get_integration_class(integration_id)
+            if not cls:
+                raise RuntimeError(f"Onbekende integratie: {integration_id}")
+            device = await loop.run_in_executor(None, cls.test_connection, config)
+            result = {
+                "type": "test_result",
+                "request_id": request_id,
+                "success": True,
+                "response_ms": int((time.time() - start) * 1000),
+                "device": device or {},
+            }
+        except Exception as e:
+            logger.warning(f"Integratietest mislukt ({integration_id}): {e}")
+            result = {
+                "type": "test_result",
+                "request_id": request_id,
+                "success": False,
+                "response_ms": 0,
+                "error": str(e),
+            }
+
+        try:
+            await ws.send(json.dumps(result))
+        except Exception as e:
+            logger.error(f"Kon test_result niet versturen: {e}")
 
     def run(self):
         logger.info(f"MTD Agent {VERSION} gestart")

@@ -24,3 +24,12 @@ class BaseIntegration(ABC):
         if self._error_count > 0:
             self._error_count = 0
             self.api.send_event(self.integration_id, "info", "Integratie hersteld")
+
+    @staticmethod
+    def test_connection(config: dict) -> dict:
+        """Voer eenmalige verbindingstest uit met de gegeven config (nog niet opgeslagen).
+
+        Gooit een Exception met leesbare foutmelding bij falen.
+        Retourneert optioneel een dict met device-info voor in de UI.
+        """
+        raise NotImplementedError("Verbindingstest niet ondersteund voor deze integratie")

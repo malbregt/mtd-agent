@@ -36,7 +36,7 @@ class WebSocketClient:
                     async for message in ws:
                         try:
                             data = json.loads(message)
-                            await self.on_message(data)
+                            await self.on_message(data, ws)
                             await ws.send(json.dumps({"type": "ack"}))
                         except json.JSONDecodeError:
                             logger.warning(f"Ongeldig WebSocket bericht: {message}")
