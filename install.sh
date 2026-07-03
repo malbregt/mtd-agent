@@ -11,7 +11,7 @@ echo "=== MTD Agent Installer ==="
 # 1. Systeem updaten
 echo "[1/6] Systeem updaten..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-pip python3-venv git curl
+apt-get install -y -qq python3 python3-pip python3-venv git curl sqlite3
 
 # 2. Agent downloaden of updaten
 echo "[2/6] Agent downloaden..."
@@ -45,14 +45,15 @@ systemctl daemon-reload
 # 6. Starten
 echo "[6/6] Starten..."
 if [ "$FIRST_INSTALL" = true ]; then
-  # Eerste installatie: start captive portal
   echo "Eerste installatie — captive portal starten..."
   bash $INSTALL_DIR/scripts/setup-hotspot.sh
   systemctl enable $SERVICE_PORTAL
   systemctl start $SERVICE_PORTAL
 else
-  # Update: herstart agent
+  # Update: herstart agent, zorg dat hij altijd autostart
   systemctl enable $SERVICE_AGENT
+  systemctl disable $SERVICE_PORTAL 2>/dev/null || true
+  systemctl stop $SERVICE_PORTAL 2>/dev/null || true
   systemctl restart $SERVICE_AGENT
 fi
 
