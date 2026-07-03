@@ -32,6 +32,19 @@ def get_pending_readings():
         return "?"
 
 
+def get_pending_counts_by_integration():
+    """Aantal wachtende readings per customer_integration_id."""
+    try:
+        con = sqlite3.connect(DB_PATH)
+        rows = con.execute(
+            "SELECT customer_integration_id, COUNT(*) FROM readings WHERE synced = 0 GROUP BY customer_integration_id"
+        ).fetchall()
+        con.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception:
+        return {}
+
+
 def get_network_info():
     info = {"ip": "onbekend", "ssid": "onbekend", "interface": "eth0"}
     try:
@@ -99,7 +112,7 @@ def _format_error_time(iso_time):
         return "?"
 
 
-def _build_integration_row(iid, integration, agent):
+def _build_integration_row(iid, integration, agent, pending_counts):
     """Bouw een status-rij voor 1 integratie. Geeft nooit een exception door,
     zodat een kapotte/onverwachte configuratie nooit de hele statuspagina meesleurt."""
     try:
@@ -111,6 +124,7 @@ def _build_integration_row(iid, integration, agent):
             "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
             "errors": integration._error_count,
             "recent_errors": list(integration._recent_errors),
+            "pending": pending_counts.get(integration.customer_integration_id, 0),
         }
     except Exception as e:
         logger.error(f"Fout bij opbouwen statusrij voor {iid}: {e}")
@@ -121,6 +135,7 @@ def _build_integration_row(iid, integration, agent):
             "last_poll": "?",
             "errors": "?",
             "recent_errors": [],
+            "pending": "?",
         }
 
 
@@ -190,8 +205,9 @@ class StatusHandler(BaseHTTPRequestHandler):
         if self.path == "/status.json":
             integrations = []
             if agent:
+                pending_counts = get_pending_counts_by_integration()
                 for iid, integration in list(agent.integrations.items()):
-                    integrations.append(_build_integration_row(iid, integration, agent))
+                    integrations.append(_build_integration_row(iid, integration, agent, pending_counts))
             self.send_json(200, {
                 "version": VERSION,
                 "uptime": get_uptime(),
@@ -208,8 +224,9 @@ class StatusHandler(BaseHTTPRequestHandler):
         # HTML
         integrations = []
         if agent:
+            pending_counts = get_pending_counts_by_integration()
             for iid, integration in list(agent.integrations.items()):
-                integrations.append(_build_integration_row(iid, integration, agent))
+                integrations.append(_build_integration_row(iid, integration, agent, pending_counts))
 
         rows = ""
         for idx, i in enumerate(integrations):
@@ -220,6 +237,7 @@ class StatusHandler(BaseHTTPRequestHandler):
                 rows += f"""<tr style="background:{kleur}" {klik}>
                     <td>{i['name']}</td><td>{i['type']}</td>
                     <td>{i['poll_interval']}s</td><td>{i['last_poll']}</td>
+                    <td>{i['pending']}</td>
                     <td>{'✓' if not has_errors else f"✗ {i['errors']} fout(en) &#9662;"}</td>
                 </tr>"""
                 if has_errors:
@@ -228,11 +246,17 @@ class StatusHandler(BaseHTTPRequestHandler):
                         for e in reversed(i["recent_errors"])
                     )
                     rows += f"""<tr id="errors-{idx}" class="error-detail" style="display:none">
-                        <td colspan="5"><ul class="error-list">{error_items}</ul></td>
+                        <td colspan="6"><ul class="error-list">{error_items}</ul></td>
                     </tr>"""
             except Exception as e:
                 logger.error(f"Fout bij renderen statusrij {idx}: {e}")
-                rows += f"""<tr style="background:#f8d7da"><td colspan="5">Fout bij weergeven van deze integratie</td></tr>"""
+                rows += f"""<tr style="background:#f8d7da"><td colspan="6">Fout bij weergeven van deze integratie</td></tr>"""
+
+        # Auto-refresh gelijk aan de kortste poll_interval van de actieve integraties
+        # (zodat "Laatste poll" en "Wachtend" up-to-date blijven), met een ondergrens
+        # van 5s om de Pi niet nodeloos te belasten en een bovengrens/fallback van 30s.
+        poll_intervals = [i["poll_interval"] for i in integrations if isinstance(i["poll_interval"], int)]
+        refresh_seconds = max(5, min(poll_intervals)) if poll_intervals else 30
 
         html = f"""<!DOCTYPE html>
 <html lang="nl">
@@ -281,6 +305,7 @@ class StatusHandler(BaseHTTPRequestHandler):
     <button class="tab active" onclick="tab('status')">Status</button>
     <button class="tab" onclick="tab('netwerk')">Netwerk</button>
     <button class="tab" onclick="tab('reset')">Reset</button>
+    <button class="tab" onclick="location.reload()" style="margin-left:auto" title="Nu verversen">&#8635; Ververs</button>
   </div>
 
   <!-- Status -->
@@ -291,9 +316,10 @@ class StatusHandler(BaseHTTPRequestHandler):
       <div class="card"><div class="label">IP adres</div><div class="value" style="font-size:0.95rem">{net['ip']}</div></div>
     </div>
     <table>
-      <thead><tr><th>Naam</th><th>Type</th><th>Interval</th><th>Laatste poll</th><th>Status</th></tr></thead>
-      <tbody>{rows if rows else '<tr><td colspan="5" style="color:#aaa;text-align:center;padding:20px">Geen integraties actief</td></tr>'}</tbody>
+      <thead><tr><th>Naam</th><th>Type</th><th>Interval</th><th>Laatste poll</th><th>Wachtend</th><th>Status</th></tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:20px">Geen integraties actief</td></tr>'}</tbody>
     </table>
+    <p class="footer" id="refresh-info">Automatisch verversen elke {refresh_seconds}s</p>
   </div>
 
   <!-- Netwerk -->
@@ -338,6 +364,14 @@ class StatusHandler(BaseHTTPRequestHandler):
     document.getElementById('panel-' + name).classList.add('active');
     if (name === 'netwerk') loadNetworks();
   }}
+
+  // Automatisch verversen op het interval van de snelste integratie, maar alleen
+  // terwijl de Status-tab actief is (niet storen tijdens WiFi instellen/reset).
+  setInterval(() => {{
+    if (document.getElementById('panel-status').classList.contains('active')) {{
+      location.reload();
+    }}
+  }}, {refresh_seconds * 1000});
 
   async function loadNetworks() {{
     const sel = document.getElementById('wifi-ssid');
