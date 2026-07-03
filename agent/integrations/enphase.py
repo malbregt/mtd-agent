@@ -106,7 +106,7 @@ class EnphaseIntegration(BaseIntegration):
 
             data = self._fetch_production(host, token)
             timestamp = datetime.now(timezone.utc).isoformat()
-            self.sync.store(self.integration_id, timestamp, data)
+            self.sync.store(self.integration_id, timestamp, data, self.customer_integration_id)
             self.report_ok()
             logger.debug(f"Enphase: {data.get('wattsNow')}W")
         except requests.RequestException as e:

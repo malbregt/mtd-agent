@@ -19,30 +19,35 @@ class SyncWorker:
             CREATE TABLE IF NOT EXISTS readings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 integration_id TEXT,
+                customer_integration_id TEXT,
                 timestamp TEXT,
                 data TEXT,
                 synced INTEGER DEFAULT 0
             )
         """)
+        try:
+            con.execute("ALTER TABLE readings ADD COLUMN customer_integration_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # kolom bestaat al
         con.commit()
         con.close()
 
-    def store(self, integration_id: str, timestamp: str, data: dict):
+    def store(self, integration_id: str, timestamp: str, data: dict, customer_integration_id: str = None):
         """Sla reading op in lokale cache."""
         con = sqlite3.connect(DB_PATH)
         con.execute(
-            "INSERT INTO readings (integration_id, timestamp, data) VALUES (?, ?, ?)",
-            (integration_id, timestamp, json.dumps(data))
+            "INSERT INTO readings (integration_id, customer_integration_id, timestamp, data) VALUES (?, ?, ?, ?)",
+            (integration_id, customer_integration_id, timestamp, json.dumps(data))
         )
         con.commit()
         con.close()
-        logger.debug(f"Opgeslagen: {integration_id} @ {timestamp}")
+        logger.debug(f"Opgeslagen: {integration_id} ({customer_integration_id}) @ {timestamp}")
 
     def flush(self):
         """Stuur openstaande readings naar platform."""
         con = sqlite3.connect(DB_PATH)
         rows = con.execute(
-            "SELECT id, integration_id, timestamp, data FROM readings WHERE synced = 0 LIMIT 100"
+            "SELECT id, integration_id, customer_integration_id, timestamp, data FROM readings WHERE synced = 0 LIMIT 100"
         ).fetchall()
 
         if not rows:
@@ -52,8 +57,9 @@ class SyncWorker:
         payload = [
             {
                 "integration_id": r[1],
-                "timestamp": r[2],
-                "data": json.loads(r[3])
+                "customer_integration_id": r[2],
+                "timestamp": r[3],
+                "data": json.loads(r[4])
             }
             for r in rows
         ]

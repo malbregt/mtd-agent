@@ -7,7 +7,8 @@ MAX_RECENT_ERRORS = 20
 
 class BaseIntegration(ABC):
     def __init__(self, integration_id: str, config: dict, sync, api_client):
-        self.integration_id = integration_id
+        self.customer_integration_id = integration_id
+        self.integration_id = config.get("type", integration_id)
         self.config = config
         self.sync = sync
         self.api = api_client

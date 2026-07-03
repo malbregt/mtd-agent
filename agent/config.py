@@ -32,5 +32,7 @@ class ConfigManager:
         return self._config.get(key, default)
 
     def set(self, key, value):
+        if self._config.get(key) == value:
+            return
         self._config[key] = value
         self.save(self._config)

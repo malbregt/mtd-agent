@@ -20,7 +20,7 @@ class HomewizardWaterIntegration(BaseIntegration):
             resp.raise_for_status()
             data = resp.json()
             timestamp = datetime.now(timezone.utc).isoformat()
-            self.sync.store(self.integration_id, timestamp, data)
+            self.sync.store(self.integration_id, timestamp, data, self.customer_integration_id)
             self.report_ok()
             logger.debug(f"Watermeter: {data.get('active_liter_lpm')} l/min, totaal {data.get('total_liter_m3')} m3")
         except requests.RequestException as e:
