@@ -5,9 +5,10 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 from base import BaseIntegration
 
-logger = logging.getLogger("homewizard_water")
+logger = logging.getLogger("homewizard_p1")
 
-class HomewizardWaterIntegration(BaseIntegration):
+
+class HomewizardP1Integration(BaseIntegration):
     @staticmethod
     def test_connection(config: dict) -> dict:
         host = config.get("host")
@@ -32,13 +33,13 @@ class HomewizardWaterIntegration(BaseIntegration):
             "serial": info.get("serial"),
             "firmware_version": info.get("firmware_version"),
             "api_version": info.get("api_version"),
-            "total_liter_m3": data.get("total_liter_m3"),
+            "active_power_w": data.get("active_power_w"),
         }
 
     def poll(self):
         host = self.config.get("config", {}).get("host") or self.config.get("host")
         if not host:
-            logger.error("Geen host geconfigureerd voor HomeWizard Watermeter")
+            logger.error("Geen host geconfigureerd voor HomeWizard")
             return
         host = self.normalize_host(host)
 
@@ -49,7 +50,7 @@ class HomewizardWaterIntegration(BaseIntegration):
             timestamp = datetime.now(timezone.utc).isoformat()
             self.sync.store(self.integration_id, timestamp, data, self.customer_integration_id)
             self.report_ok()
-            logger.debug(f"Watermeter: {data.get('active_liter_lpm')} l/min, totaal {data.get('total_liter_m3')} m3")
+            logger.debug(f"HomeWizard: {data.get('active_power_w')}W")
         except requests.RequestException as e:
-            logger.warning(f"Watermeter fout: {e}")
+            logger.warning(f"HomeWizard fout: {e}")
             self.report_error(str(e))

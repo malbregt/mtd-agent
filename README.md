@@ -41,7 +41,8 @@ mtd-agent/
 │   ├── scanner.py                # Netwerkscan (mDNS + poortscan)
 │   └── integrations/
 │       ├── base.py               # BaseIntegration
-│       ├── homewizard.py         # HomeWizard P1 plugin
+│       ├── homewizard_p1.py      # HomeWizard P1 plugin
+│       ├── homewizard_water.py   # HomeWizard Watermeter plugin
 │       └── enphase.py            # Enphase Envoy plugin
 ├── captive_portal/
 │   ├── portal.py                 # Flask onboarding portal
