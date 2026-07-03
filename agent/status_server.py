@@ -140,6 +140,7 @@ class StatusHandler(BaseHTTPRequestHandler):
                         "poll_interval": integration.poll_interval,
                         "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
                         "errors": integration._error_count,
+                        "recent_errors": list(integration._recent_errors),
                     })
             self.send_json(200, {
                 "version": VERSION,
@@ -168,13 +169,22 @@ class StatusHandler(BaseHTTPRequestHandler):
                 })
 
         rows = ""
-        for i in integrations:
+        for idx, i in enumerate(integrations):
             kleur = "#d4edda" if i["errors"] == 0 else "#f8d7da"
-            rows += f"""<tr style="background:{kleur}">
+            klik = f'onclick="toggleErrors({idx})" style="cursor:pointer"' if i["errors"] > 0 else ""
+            rows += f"""<tr style="background:{kleur}" {klik}>
                 <td>{i['name']}</td><td>{i['type']}</td>
                 <td>{i['poll_interval']}s</td><td>{i['last_poll']}</td>
-                <td>{'✓' if i['errors'] == 0 else f"✗ {i['errors']} fout(en)"}</td>
+                <td>{'✓' if i['errors'] == 0 else f"✗ {i['errors']} fout(en) &#9662;"}</td>
             </tr>"""
+            if i["errors"] > 0:
+                error_items = "".join(
+                    f"<li><span class='err-time'>{datetime.fromisoformat(e['time']).astimezone().strftime('%H:%M:%S')}</span> {e['message']}</li>"
+                    for e in reversed(i["recent_errors"])
+                )
+                rows += f"""<tr id="errors-{idx}" class="error-detail" style="display:none">
+                    <td colspan="5"><ul class="error-list">{error_items}</ul></td>
+                </tr>"""
 
         html = f"""<!DOCTYPE html>
 <html lang="nl">
@@ -208,6 +218,11 @@ class StatusHandler(BaseHTTPRequestHandler):
     .status-msg.ok{{background:#d4edda;color:#155724;display:block}}
     .status-msg.err{{background:#f8d7da;color:#721c24;display:block}}
     .footer{{margin-top:16px;font-size:0.75rem;color:#aaa}}
+    .error-detail td{{background:#fff5f5;padding:0}}
+    .error-list{{list-style:none;padding:10px 16px;margin:0;max-height:220px;overflow-y:auto}}
+    .error-list li{{font-size:0.8rem;color:#721c24;padding:4px 0;border-bottom:1px solid #f5dcdc}}
+    .error-list li:last-child{{border-bottom:none}}
+    .err-time{{color:#999;margin-right:8px;font-variant-numeric:tabular-nums}}
   </style>
 </head>
 <body>
@@ -264,6 +279,11 @@ class StatusHandler(BaseHTTPRequestHandler):
   <p class="footer">mtd-agent.local:8080</p>
 
 <script>
+  function toggleErrors(idx) {{
+    const row = document.getElementById('errors-' + idx);
+    row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+  }}
+
   function tab(name) {{
     document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['status','netwerk','reset'][i] === name));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));

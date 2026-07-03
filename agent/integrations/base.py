@@ -1,4 +1,8 @@
 from abc import ABC, abstractmethod
+from collections import deque
+from datetime import datetime, timezone
+
+MAX_RECENT_ERRORS = 20
 
 
 class BaseIntegration(ABC):
@@ -10,6 +14,7 @@ class BaseIntegration(ABC):
         self.name = config.get("name", self.__class__.__name__)
         self.poll_interval = config.get("poll_interval", 60)
         self._error_count = 0
+        self._recent_errors = deque(maxlen=MAX_RECENT_ERRORS)
 
     @abstractmethod
     def poll(self):
@@ -18,6 +23,10 @@ class BaseIntegration(ABC):
 
     def report_error(self, message: str):
         self._error_count += 1
+        self._recent_errors.append({
+            "time": datetime.now(timezone.utc).isoformat(),
+            "message": message,
+        })
         self.api.send_event(self.integration_id, "error", message)
 
     def report_ok(self):
