@@ -166,6 +166,7 @@ class StatusHandler(BaseHTTPRequestHandler):
                     "poll_interval": integration.poll_interval,
                     "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
                     "errors": integration._error_count,
+                    "recent_errors": list(integration._recent_errors),
                 })
 
         rows = ""
