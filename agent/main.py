@@ -52,6 +52,15 @@ class Agent:
         strip = lambda d: {k: v for k, v in d.items() if not k.startswith("_")}
         return strip(old_cfg) != strip(new_cfg)
 
+    @staticmethod
+    def _track_key(cfg: dict) -> str:
+        """Sleutel waarop integraties intern worden bijgehouden. Gebruik de stabiele
+        'slug' als die beschikbaar is (blijft gelijk over saves heen); val terug op
+        'id' voor backends die nog geen slug meesturen. Let op: 'id' zelf (de
+        customer_integration_id) blijft altijd naar de integratie doorgegeven voor
+        readings/events, ongeacht welke sleutel hier gebruikt wordt."""
+        return cfg.get("slug") or cfg["id"]
+
     def _load_integrations(self, integration_configs: list):
         """Laad, herlaad of stop integraties op basis van config. Raakt alleen
         integraties aan die daadwerkelijk gestopt, nieuw of gewijzigd zijn,
@@ -66,31 +75,32 @@ class Agent:
             else:
                 logger.error(f"Integratieconfig overgeslagen, ontbrekend 'id' of 'type': {cfg}")
 
-        new_ids = {cfg["id"] for cfg in valid_configs}
+        new_keys = {self._track_key(cfg) for cfg in valid_configs}
 
         # Verwijder gestopte integraties
-        for iid in list(self.integrations.keys()):
-            if iid not in new_ids:
-                logger.info(f"Integratie gestopt: {iid}")
-                del self.integrations[iid]
+        for key in list(self.integrations.keys()):
+            if key not in new_keys:
+                logger.info(f"Integratie gestopt: {key}")
+                del self.integrations[key]
 
         # Laad nieuwe of gewijzigde integraties
         for cfg in valid_configs:
+            key = self._track_key(cfg)
             iid = cfg["id"]
             try:
-                existing = self.integrations.get(iid)
+                existing = self.integrations.get(key)
                 if existing is not None and not self._config_changed(existing.config, cfg):
                     continue  # ongewijzigd, niet herladen
 
                 plugin_name = cfg["type"]
                 cls = self.plugins.get_integration_class(plugin_name)
                 if cls:
-                    self.integrations[iid] = cls(iid, cfg, self.sync, self.api)
+                    self.integrations[key] = cls(iid, cfg, self.sync, self.api)
                     logger.info(f"Integratie {'bijgewerkt' if existing else 'geladen'}: {cfg.get('name', plugin_name)}")
                 else:
                     logger.error(f"Plugin niet gevonden: {plugin_name}")
             except Exception as e:
-                logger.error(f"Integratie {iid} laden mislukt: {e}")
+                logger.error(f"Integratie {key} laden mislukt: {e}")
 
     def _refresh_config(self):
         """Haal config op van platform en herlaad integraties."""
@@ -125,10 +135,16 @@ class Agent:
 
         elif msg_type == "restart_integration":
             iid = data.get("integration_id")
-            if iid in self.integrations:
-                del self.integrations[iid]
+            # self.integrations kan op 'slug' of op 'id' gesleuteld zijn (zie
+            # _track_key); zoek op beide zodat dit werkt ongeacht welke waarde
+            # het platform hier meestuurt.
+            key = iid if iid in self.integrations else next(
+                (k for k, v in self.integrations.items() if v.customer_integration_id == iid), None
+            )
+            if key is not None:
+                del self.integrations[key]
                 logger.info(f"Integratie herstart: {iid}")
-                self._refresh_config()
+            self._refresh_config()
 
         elif msg_type == "update":
             logger.info(f"OTA update beschikbaar: {data.get('version')}")
