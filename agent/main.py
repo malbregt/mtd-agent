@@ -48,7 +48,7 @@ class Agent:
 
     def _load_integrations(self, integration_configs: list):
         """Laad of herlaad integraties op basis van config."""
-        new_ids = {i["integration_id"] for i in integration_configs}
+        new_ids = {i["id"] for i in integration_configs}
 
         # Verwijder gestopte integraties
         for iid in list(self.integrations.keys()):
@@ -58,7 +58,7 @@ class Agent:
 
         # Laad nieuwe integraties
         for cfg in integration_configs:
-            iid = cfg["integration_id"]
+            iid = cfg["id"]
             if iid not in self.integrations:
                 plugin_name = cfg["type"]
                 cls = self.plugins.get_integration_class(plugin_name)
