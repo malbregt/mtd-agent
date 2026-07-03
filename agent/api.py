@@ -76,20 +76,6 @@ class AgentAPIClient:
             logger.warning(f"Readings sync mislukt: {e}")
             return False
 
-    def send_scan(self, results: list):
-        """Stuur netwerkscan resultaten naar platform."""
-        try:
-            resp = requests.post(
-                f"{API_URL}/agent/scan",
-                json={"results": results},
-                headers=self.headers,
-                timeout=10
-            )
-            return resp.status_code == 200
-        except requests.RequestException as e:
-            logger.warning(f"Scan upload mislukt: {e}")
-            return False
-
     def send_event(self, integration_id: str, level: str, message: str):
         """Rapporteer fout of event voor een integratie."""
         try:

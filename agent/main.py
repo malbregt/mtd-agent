@@ -10,7 +10,6 @@ from config import ConfigManager
 from api import AgentAPIClient
 from sync import SyncWorker
 from plugin_manager import PluginManager
-from scanner import scan_network
 from websocket_client import WebSocketClient
 from status_server import start_status_server
 
@@ -23,8 +22,8 @@ logger = logging.getLogger("mtd-agent")
 VERSION = "1.0.0"
 HEARTBEAT_INTERVAL = 30
 CONFIG_POLL_INTERVAL = 300  # 5 minuten, fallback voor WebSocket
-SCAN_INTERVAL = 3600  # elk uur
 DEFAULT_DELIVERY_INTERVAL = 900  # 15 minuten, fallback als backend geen waarde meestuurt
+SYNC_CATCHUP_INTERVAL = 10  # bij backlog niet wachten op delivery_interval maar snel doorpakken
 
 
 def get_local_ip():
@@ -102,22 +101,27 @@ class Agent:
 
     async def _on_ws_message(self, data: dict, ws):
         """Verwerk binnenkomend WebSocket bericht. Een fout in de afhandeling
-        van 1 bericht mag de WebSocket-verbinding nooit verbreken."""
+        van 1 bericht mag de WebSocket-verbinding nooit verbreken, en trage/
+        blokkerende verwerking (plugin-download, config ophalen) mag nooit de
+        WS-ontvangstlus (heartbeats, acks, andere berichten)
+        bevriezen. Daarom draait de eigenlijke afhandeling in een aparte thread."""
+        if data.get("type") == "test_integration":
+            # Stuurt zelf een antwoord terug over de WebSocket, dus als async task.
+            asyncio.create_task(self._handle_test_integration(data, ws))
+            return
+
         try:
-            await self._handle_ws_message(data, ws)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._handle_ws_message, data)
         except Exception as e:
             logger.error(f"Fout bij verwerken WebSocket bericht ({data.get('type')}): {e}")
 
-    async def _handle_ws_message(self, data: dict, ws):
+    def _handle_ws_message(self, data: dict):
         msg_type = data.get("type")
         logger.info(f"WebSocket bericht: {msg_type}")
 
         if msg_type == "config_update":
             self._load_integrations(data.get("config", {}).get("integrations", []))
-
-        elif msg_type == "scan":
-            results = scan_network()
-            self.api.send_scan(results)
 
         elif msg_type == "restart_integration":
             iid = data.get("integration_id")
@@ -129,9 +133,6 @@ class Agent:
         elif msg_type == "update":
             logger.info(f"OTA update beschikbaar: {data.get('version')}")
             os.system("/opt/mtd-agent/install.sh")
-
-        elif msg_type == "test_integration":
-            asyncio.create_task(self._handle_test_integration(data, ws))
 
     async def _handle_test_integration(self, data: dict, ws):
         """Test een integratieconfig zonder deze op te slaan en stuur test_result terug."""
@@ -182,10 +183,6 @@ class Agent:
         # Initiële config ophalen
         self._refresh_config()
 
-        # Initiële netwerkscan
-        results = scan_network()
-        self.api.send_scan(results)
-
         # WebSocket in aparte thread
         def ws_thread():
             loop = asyncio.new_event_loop()
@@ -199,7 +196,7 @@ class Agent:
         last_heartbeat = 0
         last_sync = 0
         last_config_poll = 0
-        last_scan = 0
+        sync_backlog = False
 
         while True:
             now = time.time()
@@ -220,15 +217,6 @@ class Agent:
                     logger.error(f"Fout bij config ophalen: {e}")
                 last_config_poll = now
 
-            # Periodieke netwerkscan
-            if now - last_scan >= SCAN_INTERVAL:
-                try:
-                    results = scan_network()
-                    self.api.send_scan(results)
-                except Exception as e:
-                    logger.error(f"Fout bij netwerkscan: {e}")
-                last_scan = now
-
             # Poll integraties op basis van eigen interval
             for iid, integration in list(self.integrations.items()):
                 last = self._last_poll.get(iid, 0)
@@ -243,13 +231,17 @@ class Agent:
                             logger.error(f"Fout bij rapporteren van fout voor {iid}: {report_e}")
                     self._last_poll[iid] = now
 
-            # Sync cache naar platform
+            # Sync cache naar platform. Bij een backlog (volle batch verstuurd,
+            # mogelijk meer wachtend) meteen doorpakken i.p.v. te wachten op het
+            # volle interval, anders loopt een achterstand nooit in.
             sync_interval = self.config.get("delivery_interval_seconds", DEFAULT_DELIVERY_INTERVAL)
-            if now - last_sync >= sync_interval:
+            effective_interval = SYNC_CATCHUP_INTERVAL if sync_backlog else sync_interval
+            if now - last_sync >= effective_interval:
                 try:
-                    self.sync.flush()
+                    sync_backlog = self.sync.flush()
                 except Exception as e:
                     logger.error(f"Fout bij synchroniseren: {e}")
+                    sync_backlog = False
                 last_sync = now
 
             time.sleep(1)

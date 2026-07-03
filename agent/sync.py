@@ -43,8 +43,13 @@ class SyncWorker:
         con.close()
         logger.debug(f"Opgeslagen: {integration_id} ({customer_integration_id}) @ {timestamp}")
 
-    def flush(self):
-        """Stuur openstaande readings naar platform."""
+    def flush(self) -> bool:
+        """Stuur openstaande readings naar platform.
+
+        Retourneert True als er meteen weer gesynchroniseerd moet worden (er stond
+        een volle batch klaar en het versturen lukte, dus er wacht mogelijk meer
+        achterstand), zodat de aanroeper sneller kan gaan syncen bij een backlog
+        i.p.v. te wachten op het volgende reguliere sync-interval."""
         con = sqlite3.connect(DB_PATH)
         rows = con.execute(
             "SELECT id, integration_id, customer_integration_id, timestamp, data FROM readings WHERE synced = 0 LIMIT 100"
@@ -52,7 +57,7 @@ class SyncWorker:
 
         if not rows:
             con.close()
-            return
+            return False
 
         payload = []
         bad_ids = []
@@ -79,7 +84,9 @@ class SyncWorker:
             )
             con.commit()
 
+        sent_ok = False
         if payload and self.api.send_readings(payload):
+            sent_ok = True
             ids = [r[0] for r in rows if r[0] not in bad_ids]
             con.execute(
                 f"UPDATE readings SET synced = 1 WHERE id IN ({','.join('?'*len(ids))})",
@@ -97,4 +104,10 @@ class SyncWorker:
             AND datetime(timestamp) < datetime('now', '-48 hours')
         """)
         con.commit()
+
+        # Volle batch verwerkt (of alleen kapotte rijen weggegooid): er kan nog
+        # meer achterstand wachten. Alleen bij een geslaagde send meteen doorpakken,
+        # anders bij een storing niet op de API blijven hameren.
+        more_pending = len(rows) == 100 and (sent_ok or not payload)
         con.close()
+        return more_pending

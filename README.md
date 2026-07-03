@@ -38,7 +38,6 @@ mtd-agent/
 │   ├── sync.py                   # SQLite cache + sync
 │   ├── websocket_client.py       # WebSocket voor config push
 │   ├── plugin_manager.py         # Dynamisch laden van plugins
-│   ├── scanner.py                # Netwerkscan (mDNS + poortscan)
 │   └── integrations/
 │       ├── base.py               # BaseIntegration
 │       ├── homewizard_p1.py      # HomeWizard P1 plugin
