@@ -131,7 +131,12 @@ class Agent:
         logger.info(f"WebSocket bericht: {msg_type}")
 
         if msg_type == "config_update":
-            self._load_integrations(data.get("config", {}).get("integrations", []))
+            # Het bericht draagt in de praktijk geen "config"-payload mee (ondanks
+            # het gedocumenteerde contract) - het is puur een signaal dat er iets
+            # gewijzigd is. Haal de actuele integraties daarom altijd vers op via
+            # REST i.p.v. te vertrouwen op (een mogelijk lege) inline payload, want
+            # anders wordt elke integratie hier onterecht als verwijderd behandeld.
+            self._refresh_config()
 
         elif msg_type == "restart_integration":
             iid = data.get("integration_id")
