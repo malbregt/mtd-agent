@@ -47,9 +47,27 @@ class Agent:
         self.integrations = {}
         self._last_poll = {}
 
+    @staticmethod
+    def _config_changed(old_cfg: dict, new_cfg: dict) -> bool:
+        """Vergelijk config zonder interne/gemuteerde velden (bijv. Enphase '_token')."""
+        strip = lambda d: {k: v for k, v in d.items() if not k.startswith("_")}
+        return strip(old_cfg) != strip(new_cfg)
+
     def _load_integrations(self, integration_configs: list):
-        """Laad of herlaad integraties op basis van config."""
-        new_ids = {i["id"] for i in integration_configs}
+        """Laad, herlaad of stop integraties op basis van config. Raakt alleen
+        integraties aan die daadwerkelijk gestopt, nieuw of gewijzigd zijn,
+        zodat een save van 1 integratie niet alle andere herstart.
+
+        Een individuele kapotte/onvolledige config-entry mag de rest van de
+        batch nooit blokkeren, dus elke entry wordt apart afgehandeld."""
+        valid_configs = []
+        for cfg in integration_configs:
+            if "id" in cfg and "type" in cfg:
+                valid_configs.append(cfg)
+            else:
+                logger.error(f"Integratieconfig overgeslagen, ontbrekend 'id' of 'type': {cfg}")
+
+        new_ids = {cfg["id"] for cfg in valid_configs}
 
         # Verwijder gestopte integraties
         for iid in list(self.integrations.keys()):
@@ -57,17 +75,23 @@ class Agent:
                 logger.info(f"Integratie gestopt: {iid}")
                 del self.integrations[iid]
 
-        # Laad nieuwe integraties
-        for cfg in integration_configs:
+        # Laad nieuwe of gewijzigde integraties
+        for cfg in valid_configs:
             iid = cfg["id"]
-            if iid not in self.integrations:
+            try:
+                existing = self.integrations.get(iid)
+                if existing is not None and not self._config_changed(existing.config, cfg):
+                    continue  # ongewijzigd, niet herladen
+
                 plugin_name = cfg["type"]
                 cls = self.plugins.get_integration_class(plugin_name)
                 if cls:
                     self.integrations[iid] = cls(iid, cfg, self.sync, self.api)
-                    logger.info(f"Integratie geladen: {cfg.get('name', plugin_name)}")
+                    logger.info(f"Integratie {'bijgewerkt' if existing else 'geladen'}: {cfg.get('name', plugin_name)}")
                 else:
                     logger.error(f"Plugin niet gevonden: {plugin_name}")
+            except Exception as e:
+                logger.error(f"Integratie {iid} laden mislukt: {e}")
 
     def _refresh_config(self):
         """Haal config op van platform en herlaad integraties."""
@@ -77,7 +101,14 @@ class Agent:
             self.config.set("delivery_interval_seconds", remote_config.get("delivery_interval_seconds", DEFAULT_DELIVERY_INTERVAL))
 
     async def _on_ws_message(self, data: dict, ws):
-        """Verwerk binnenkomend WebSocket bericht."""
+        """Verwerk binnenkomend WebSocket bericht. Een fout in de afhandeling
+        van 1 bericht mag de WebSocket-verbinding nooit verbreken."""
+        try:
+            await self._handle_ws_message(data, ws)
+        except Exception as e:
+            logger.error(f"Fout bij verwerken WebSocket bericht ({data.get('type')}): {e}")
+
+    async def _handle_ws_message(self, data: dict, ws):
         msg_type = data.get("type")
         logger.info(f"WebSocket bericht: {msg_type}")
 
@@ -173,18 +204,27 @@ class Agent:
 
             # Heartbeat
             if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                self.api.send_heartbeat(VERSION, get_local_ip())
+                try:
+                    self.api.send_heartbeat(VERSION, get_local_ip())
+                except Exception as e:
+                    logger.error(f"Fout bij heartbeat: {e}")
                 last_heartbeat = now
 
             # Config polling (fallback voor WebSocket)
             if now - last_config_poll >= CONFIG_POLL_INTERVAL:
-                self._refresh_config()
+                try:
+                    self._refresh_config()
+                except Exception as e:
+                    logger.error(f"Fout bij config ophalen: {e}")
                 last_config_poll = now
 
             # Periodieke netwerkscan
             if now - last_scan >= SCAN_INTERVAL:
-                results = scan_network()
-                self.api.send_scan(results)
+                try:
+                    results = scan_network()
+                    self.api.send_scan(results)
+                except Exception as e:
+                    logger.error(f"Fout bij netwerkscan: {e}")
                 last_scan = now
 
             # Poll integraties op basis van eigen interval
@@ -195,13 +235,19 @@ class Agent:
                         integration.poll()
                     except Exception as e:
                         logger.error(f"Fout in integratie {iid}: {e}")
-                        integration.report_error(str(e))
+                        try:
+                            integration.report_error(str(e))
+                        except Exception as report_e:
+                            logger.error(f"Fout bij rapporteren van fout voor {iid}: {report_e}")
                     self._last_poll[iid] = now
 
             # Sync cache naar platform
             sync_interval = self.config.get("delivery_interval_seconds", DEFAULT_DELIVERY_INTERVAL)
             if now - last_sync >= sync_interval:
-                self.sync.flush()
+                try:
+                    self.sync.flush()
+                except Exception as e:
+                    logger.error(f"Fout bij synchroniseren: {e}")
                 last_sync = now
 
             time.sleep(1)
