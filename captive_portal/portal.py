@@ -24,7 +24,6 @@ def save_config(data: dict):
 
 
 def connect_wifi(ssid: str, password: str):
-    """Verbind met WiFi netwerk via wpa_supplicant."""
     config = f"""country=NL
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
@@ -48,44 +47,24 @@ def index():
 @app.route("/api/setup", methods=["POST"])
 def setup():
     data = request.json
-    method = data.get("method")  # qr, apikey, login
-    api_key = None
+    api_key = data.get("api_key", "").strip()
+    instance_key = data.get("instance_key", "").strip()
 
-    if method == "apikey":
-        api_key = data.get("api_key")
+    if not api_key.startswith("ea_"):
+        return jsonify({"error": "API key moet beginnen met ea_"}), 400
+    if not instance_key:
+        return jsonify({"error": "Instance key is verplicht"}), 400
 
-    elif method == "login":
-        # Haal API key op via username/password
-        import requests as req
-        api_url = os.environ.get("MTD_API_URL", "https://api.mijnthuisdata.nl")
-        try:
-            resp = req.post(f"{api_url}/app/auth/device-key", json={
-                "email": data.get("email"),
-                "password": data.get("password")
-            }, timeout=10)
-            if resp.status_code == 200:
-                api_key = resp.json().get("api_key")
-            else:
-                return jsonify({"error": "Inloggen mislukt"}), 401
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+    save_config({
+        "api_key": api_key,
+        "instance_key": instance_key
+    })
 
-    elif method == "qr":
-        api_key = data.get("api_key")  # QR bevat de API key direct
-
-    if not api_key:
-        return jsonify({"error": "Geen API key ontvangen"}), 400
-
-    # Sla API key op
-    save_config({"api_key": api_key})
-
-    # WiFi instellen indien opgegeven
     ssid = data.get("ssid")
-    password = data.get("wifi_password")
+    password = data.get("wifi_password", "")
     if ssid:
-        connect_wifi(ssid, password or "")
+        connect_wifi(ssid, password)
 
-    # Herstart agent service na 2 seconden
     subprocess.Popen(["bash", "-c", "sleep 2 && systemctl restart mtd-agent && systemctl stop mtd-portal"])
 
     return jsonify({"status": "ok", "message": "Apparaat geconfigureerd, agent start..."})
@@ -93,12 +72,8 @@ def setup():
 
 @app.route("/api/networks", methods=["GET"])
 def networks():
-    """Scan beschikbare WiFi netwerken."""
     try:
-        result = subprocess.run(
-            ["iwlist", "wlan0", "scan"],
-            capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(["iwlist", "wlan0", "scan"], capture_output=True, text=True, timeout=10)
         ssids = []
         for line in result.stdout.splitlines():
             line = line.strip()
