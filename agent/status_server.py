@@ -92,11 +92,49 @@ def get_wifi_networks():
         return []
 
 
+def _format_error_time(iso_time):
+    try:
+        return datetime.fromisoformat(iso_time).astimezone().strftime("%H:%M:%S")
+    except Exception:
+        return "?"
+
+
+def _build_integration_row(iid, integration, agent):
+    """Bouw een status-rij voor 1 integratie. Geeft nooit een exception door,
+    zodat een kapotte/onverwachte configuratie nooit de hele statuspagina meesleurt."""
+    try:
+        last = agent._last_poll.get(iid, None)
+        return {
+            "name": integration.name,
+            "type": integration.config.get("type", "?"),
+            "poll_interval": integration.poll_interval,
+            "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
+            "errors": integration._error_count,
+            "recent_errors": list(integration._recent_errors),
+        }
+    except Exception as e:
+        logger.error(f"Fout bij opbouwen statusrij voor {iid}: {e}")
+        return {
+            "name": getattr(integration, "name", str(iid)),
+            "type": "?",
+            "poll_interval": "?",
+            "last_poll": "?",
+            "errors": "?",
+            "recent_errors": [],
+        }
+
+
 class StatusHandler(BaseHTTPRequestHandler):
     agent_ref = None
 
     def log_message(self, format, *args):
         pass
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except Exception as e:
+            logger.error(f"Onverwachte fout bij afhandelen request: {e}")
 
     def send_json(self, code, data):
         body = json.dumps(data).encode()
@@ -106,6 +144,16 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        try:
+            self._do_POST()
+        except Exception as e:
+            logger.error(f"Onverwachte fout in do_POST ({self.path}): {e}")
+            try:
+                self.send_json(500, {"error": "Interne fout"})
+            except Exception:
+                pass
+
+    def _do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length)) if length else {}
 
@@ -126,22 +174,24 @@ class StatusHandler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "Niet gevonden"})
 
     def do_GET(self):
+        try:
+            self._do_GET()
+        except Exception as e:
+            logger.error(f"Onverwachte fout in do_GET ({self.path}): {e}")
+            try:
+                self.send_json(500, {"error": "Interne fout"})
+            except Exception:
+                pass
+
+    def _do_GET(self):
         agent = StatusHandler.agent_ref
         net = get_network_info()
 
         if self.path == "/status.json":
             integrations = []
             if agent:
-                for iid, integration in agent.integrations.items():
-                    last = agent._last_poll.get(iid, None)
-                    integrations.append({
-                        "name": integration.name,
-                        "type": integration.config.get("type", "?"),
-                        "poll_interval": integration.poll_interval,
-                        "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
-                        "errors": integration._error_count,
-                        "recent_errors": list(integration._recent_errors),
-                    })
+                for iid, integration in list(agent.integrations.items()):
+                    integrations.append(_build_integration_row(iid, integration, agent))
             self.send_json(200, {
                 "version": VERSION,
                 "uptime": get_uptime(),
@@ -158,34 +208,31 @@ class StatusHandler(BaseHTTPRequestHandler):
         # HTML
         integrations = []
         if agent:
-            for iid, integration in agent.integrations.items():
-                last = agent._last_poll.get(iid, None)
-                integrations.append({
-                    "name": integration.name,
-                    "type": integration.config.get("type", "?"),
-                    "poll_interval": integration.poll_interval,
-                    "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
-                    "errors": integration._error_count,
-                    "recent_errors": list(integration._recent_errors),
-                })
+            for iid, integration in list(agent.integrations.items()):
+                integrations.append(_build_integration_row(iid, integration, agent))
 
         rows = ""
         for idx, i in enumerate(integrations):
-            kleur = "#d4edda" if i["errors"] == 0 else "#f8d7da"
-            klik = f'onclick="toggleErrors({idx})" style="cursor:pointer"' if i["errors"] > 0 else ""
-            rows += f"""<tr style="background:{kleur}" {klik}>
-                <td>{i['name']}</td><td>{i['type']}</td>
-                <td>{i['poll_interval']}s</td><td>{i['last_poll']}</td>
-                <td>{'✓' if i['errors'] == 0 else f"✗ {i['errors']} fout(en) &#9662;"}</td>
-            </tr>"""
-            if i["errors"] > 0:
-                error_items = "".join(
-                    f"<li><span class='err-time'>{datetime.fromisoformat(e['time']).astimezone().strftime('%H:%M:%S')}</span> {e['message']}</li>"
-                    for e in reversed(i["recent_errors"])
-                )
-                rows += f"""<tr id="errors-{idx}" class="error-detail" style="display:none">
-                    <td colspan="5"><ul class="error-list">{error_items}</ul></td>
+            try:
+                has_errors = isinstance(i["errors"], int) and i["errors"] > 0
+                kleur = "#f8d7da" if has_errors else "#d4edda"
+                klik = f'onclick="toggleErrors({idx})" style="cursor:pointer"' if has_errors else ""
+                rows += f"""<tr style="background:{kleur}" {klik}>
+                    <td>{i['name']}</td><td>{i['type']}</td>
+                    <td>{i['poll_interval']}s</td><td>{i['last_poll']}</td>
+                    <td>{'✓' if not has_errors else f"✗ {i['errors']} fout(en) &#9662;"}</td>
                 </tr>"""
+                if has_errors:
+                    error_items = "".join(
+                        f"<li><span class='err-time'>{_format_error_time(e.get('time'))}</span> {e.get('message', '?')}</li>"
+                        for e in reversed(i["recent_errors"])
+                    )
+                    rows += f"""<tr id="errors-{idx}" class="error-detail" style="display:none">
+                        <td colspan="5"><ul class="error-list">{error_items}</ul></td>
+                    </tr>"""
+            except Exception as e:
+                logger.error(f"Fout bij renderen statusrij {idx}: {e}")
+                rows += f"""<tr style="background:#f8d7da"><td colspan="5">Fout bij weergeven van deze integratie</td></tr>"""
 
         html = f"""<!DOCTYPE html>
 <html lang="nl">
