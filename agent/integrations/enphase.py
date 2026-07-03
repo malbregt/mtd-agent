@@ -68,7 +68,12 @@ class EnphaseIntegration(BaseIntegration):
             verify=False,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if not isinstance(data, dict):
+            # De Envoy geeft bij bv. een verlopen/ongeldig token HTTP 200 met een
+            # foutobject terug i.p.v. een error-statuscode, dus valideer de vorm.
+            raise RuntimeError(f"Onverwacht antwoord van Envoy (geen productiedata): {data}")
+        return data
 
     @staticmethod
     def test_connection(config: dict) -> dict:
@@ -109,6 +114,10 @@ class EnphaseIntegration(BaseIntegration):
             self.sync.store(self.integration_id, timestamp, data, self.customer_integration_id)
             self.report_ok()
             logger.debug(f"Enphase: {data.get('wattsNow')}W")
-        except requests.RequestException as e:
+        except (requests.RequestException, RuntimeError) as e:
             logger.warning(f"Enphase fout: {e}")
+            # Token kan door de Envoy zijn afgekeurd terwijl hij er lokaal nog geldig uitzag;
+            # forceer een verse token bij de volgende poll i.p.v. te blijven hangen op een dode token.
+            cfg.pop("_token", None)
+            cfg.pop("_token_exp", None)
             self.report_error(str(e))

@@ -54,25 +54,40 @@ class SyncWorker:
             con.close()
             return
 
-        payload = [
-            {
+        payload = []
+        bad_ids = []
+        for r in rows:
+            data = json.loads(r[4])
+            if not isinstance(data, dict):
+                # Kapotte/oude cache-entry (bv. een foutobject i.p.v. echte data die per
+                # ongeluk werd opgeslagen). Nooit blijven herhalen, anders vergiftigt 1
+                # kapotte rij permanent de hele batch voor alle integraties.
+                logger.error(f"Ongeldige reading in cache overgeslagen (id={r[0]}, integratie={r[1]}): {data}")
+                bad_ids.append(r[0])
+                continue
+            payload.append({
                 "integration_id": r[1],
                 "customer_integration_id": r[2],
                 "timestamp": r[3],
-                "data": json.loads(r[4])
-            }
-            for r in rows
-        ]
+                "data": data
+            })
 
-        if self.api.send_readings(payload):
-            ids = [r[0] for r in rows]
+        if bad_ids:
+            con.execute(
+                f"DELETE FROM readings WHERE id IN ({','.join('?'*len(bad_ids))})",
+                bad_ids
+            )
+            con.commit()
+
+        if payload and self.api.send_readings(payload):
+            ids = [r[0] for r in rows if r[0] not in bad_ids]
             con.execute(
                 f"UPDATE readings SET synced = 1 WHERE id IN ({','.join('?'*len(ids))})",
                 ids
             )
             con.commit()
             logger.info(f"{len(ids)} readings gesynchroniseerd")
-        else:
+        elif payload:
             logger.warning("Sync mislukt, readings bewaard in cache")
 
         # Opruimen: verwijder gesynchroniseerde readings ouder dan 48 uur
