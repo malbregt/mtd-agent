@@ -4,7 +4,7 @@ import os
 
 logger = logging.getLogger("api")
 
-API_URL = os.environ.get("MTD_API_URL", "https://api.mijnthuisdata.nl")
+API_URL = os.environ.get("MTD_API_URL", "http://192.168.0.109:8000")
 
 
 class AgentAPIClient:
@@ -14,8 +14,7 @@ class AgentAPIClient:
     @property
     def headers(self):
         return {
-            "X-API-Key": self.config.get("api_key"),
-            "X-Instance-Key": self.config.get("instance_key")
+            "X-Api-Key": self.config.get("instance_key")
         }
 
     def register(self):
@@ -72,7 +71,7 @@ class AgentAPIClient:
                 headers=self.headers,
                 timeout=10
             )
-            return resp.status_code == 200
+            return resp.status_code in (200, 202)
         except requests.RequestException as e:
             logger.warning(f"Readings sync mislukt: {e}")
             return False

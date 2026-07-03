@@ -2,11 +2,12 @@ import importlib.util
 import logging
 import os
 import requests
+import sys
 
 logger = logging.getLogger("plugins")
 
 PLUGIN_DIR = os.environ.get("MTD_PLUGIN_DIR", "/opt/mtd-agent/agent/integrations")
-PLUGIN_BASE_URL = os.environ.get("MTD_PLUGIN_URL", "https://raw.githubusercontent.com/malbregt/mtd-agent/main/agent/integrations")
+PLUGIN_BASE_URL = os.environ.get("MTD_PLUGIN_URL", "https://raw.githubusercontent.com/malbregt/mtd-agent/master/agent/integrations")
 
 
 class PluginManager:
@@ -15,6 +16,9 @@ class PluginManager:
 
     def load(self, plugin_name: str):
         """Laad een plugin op naam (bijv. 'homewizard')."""
+        if PLUGIN_DIR not in sys.path:
+            sys.path.insert(0, PLUGIN_DIR)
+        
         if plugin_name in self._plugins:
             return self._plugins[plugin_name]
 
