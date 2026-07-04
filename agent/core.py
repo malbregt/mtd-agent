@@ -57,6 +57,7 @@ class Core:
         self.plugins = PluginManager()
         self.update_status = "idle"  # lokale weergave op de statuspagina
         self.update_error = None
+        self.latest_version = None  # laatst bekende beschikbare versie (via heartbeat)
         self._start_time = time.time()
 
     async def _on_ws_message(self, data: dict, ws):
@@ -180,7 +181,7 @@ class Core:
 
             if now - last_heartbeat >= HEARTBEAT_INTERVAL:
                 try:
-                    self.api.send_heartbeat(VERSION, get_local_ip())
+                    self.latest_version = self.api.send_heartbeat(VERSION, get_local_ip())
                 except Exception as e:
                     logger.error(f"Fout bij heartbeat: {e}")
                 last_heartbeat = now

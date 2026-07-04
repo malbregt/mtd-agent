@@ -57,8 +57,11 @@ mtd-agent/
 │   ├── mtd-worker.service        # Worker service (integraties)
 │   └── mtd-portal.service        # Portal service (alleen bij eerste setup)
 └── scripts/
+    ├── provision.sh              # Eigenlijke installatie-/update-logica (door install.sh aangeroepen als nieuw proces)
     └── setup-hotspot.sh          # WiFi hotspot instellen
 ```
+
+**Waarom install.sh + scripts/provision.sh gescheiden zijn:** `install.sh` haalt alleen de code op (git checkout) en roept daarna `scripts/provision.sh` aan als nieuw proces. Dat voorkomt dat `install.sh` zichzelf tijdens de checkout overschrijft terwijl bash het nog aan het uitvoeren is (een klassieke valkuil bij self-updating scripts, die tot een gedeeltelijk/gemengd uitgevoerd script kan leiden).
 
 ## Plugins
 

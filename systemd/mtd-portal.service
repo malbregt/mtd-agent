@@ -9,7 +9,8 @@ WorkingDirectory=/opt/mtd-agent/captive_portal
 ExecStart=/opt/mtd-agent/venv/bin/python portal.py
 Restart=on-failure
 Environment=MTD_CONFIG=/opt/mtd-agent/config.json
-Environment=MTD_API_URL=http://192.168.0.109:8000
+# Optioneel per-device bestand om MTD_API_URL te overrulen (zie mtd-core.service).
+EnvironmentFile=-/etc/mtd-agent/env
 
 [Install]
 WantedBy=multi-user.target

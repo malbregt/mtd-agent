@@ -4,7 +4,7 @@ import os
 
 logger = logging.getLogger("api")
 
-API_URL = os.environ.get("MTD_API_URL", "http://192.168.0.109:8000")
+API_URL = os.environ.get("MTD_API_URL", "https://api.mijnthuisdata.nl")
 
 
 class AgentAPIClient:
@@ -49,8 +49,9 @@ class AgentAPIClient:
             logger.warning(f"Config ophalen mislukt: {e}")
         return None
 
-    def send_heartbeat(self, version: str, ip: str):
-        """Stuur heartbeat naar platform."""
+    def send_heartbeat(self, version: str, ip: str) -> str | None:
+        """Stuur heartbeat naar platform, retourneert de laatst beschikbare
+        agent-versie zoals bekend bij het platform (None bij falen/onbekend)."""
         try:
             resp = requests.post(
                 f"{API_URL}/agent/heartbeat",
@@ -58,9 +59,11 @@ class AgentAPIClient:
                 headers=self.headers,
                 timeout=5
             )
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return resp.json().get("latest_version")
         except requests.RequestException:
-            return False
+            pass
+        return None
 
     def send_update_result(self, success: bool, version: str | None, error: str | None):
         """Rapporteer een mislukte OTA-update. Bij succes herstart install.sh dit proces

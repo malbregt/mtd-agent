@@ -219,6 +219,7 @@ class StatusHandler(BaseHTTPRequestHandler):
                 "network": net,
                 "update_status": core.update_status if core else "idle",
                 "update_error": core.update_error if core else None,
+                "latest_version": core.latest_version if core else None,
             })
             return
 
@@ -262,11 +263,22 @@ class StatusHandler(BaseHTTPRequestHandler):
 
         update_status = core.update_status if core else "idle"
         update_error = core.update_error if core else None
+        latest_version = core.latest_version if core else None
         update_banner = ""
         if update_status == "updating" or update_status == "pending":
             update_banner = """<div class="banner info">Update wordt geïnstalleerd... de pagina kan even niet reageren als mtd-core zelf herstart.</div>"""
         elif update_status == "failed" and update_error:
             update_banner = f"""<div class="banner warn">Laatste update mislukt: {update_error[:300]}</div>"""
+
+        # Vergelijk zonder leidende 'v' (git-tags zoals 'v1.0.6' vs. de kale
+        # VERSION-constante) zodat dit werkt ongeacht welke notatie gebruikt is.
+        update_available = bool(latest_version) and latest_version.lstrip("v") != VERSION.lstrip("v")
+        if update_available:
+            version_status_html = f'<span style="color:#c77700">Nieuwe versie beschikbaar: <strong>{latest_version}</strong></span>'
+        elif latest_version:
+            version_status_html = '<span style="color:#2d8a4e">Je hebt de laatste versie</span>'
+        else:
+            version_status_html = '<span style="color:#999">Onbekend (nog geen contact met platform gehad)</span>'
 
         html = f"""<!DOCTYPE html>
 <html lang="nl">
@@ -367,10 +379,16 @@ class StatusHandler(BaseHTTPRequestHandler):
       </p>
       <label>Instance key (dev_...)</label>
       <p style="font-size:0.8rem;color:#999;margin:2px 0 4px">Huidig: <code>{_mask_secret(core.config.get("instance_key")) if core else "?"}</code></p>
-      <input type="password" id="settings-instance-key" placeholder="Laat leeg om ongewijzigd te laten">
+      <div style="display:flex;gap:6px">
+        <input type="password" id="settings-instance-key" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
+        <button type="button" onclick="togglePw('settings-instance-key', this)">Toon</button>
+      </div>
       <label>API key (ea_...)</label>
       <p style="font-size:0.8rem;color:#999;margin:2px 0 4px">Huidig: <code>{_mask_secret(core.config.get("api_key")) if core else "?"}</code></p>
-      <input type="password" id="settings-api-key" placeholder="Laat leeg om ongewijzigd te laten">
+      <div style="display:flex;gap:6px">
+        <input type="password" id="settings-api-key" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
+        <button type="button" onclick="togglePw('settings-api-key', this)">Toon</button>
+      </div>
       <button class="primary" onclick="saveSettings()">Opslaan</button>
       <div class="status-msg" id="settings-status"></div>
     </div>
@@ -380,6 +398,7 @@ class StatusHandler(BaseHTTPRequestHandler):
   <div class="panel" id="panel-update">
     <div class="card">
       <strong style="font-size:0.95rem">Update lokaal installeren</strong>
+      <p style="font-size:0.9rem;margin-top:8px">Huidige versie: <strong>{VERSION}</strong> &middot; {version_status_html}</p>
       <p style="font-size:0.85rem;color:#666;margin-top:6px">
         Werkt ook zonder verbinding met het platform. Vul de gewenste versie/tag in (bijv. v1.0.6).
       </p>
@@ -405,6 +424,13 @@ class StatusHandler(BaseHTTPRequestHandler):
   <p class="footer">mtd-agent.local:8080</p>
 
 <script>
+  function togglePw(id, btn) {{
+    const input = document.getElementById(id);
+    const shown = input.type === 'text';
+    input.type = shown ? 'password' : 'text';
+    btn.textContent = shown ? 'Toon' : 'Verberg';
+  }}
+
   function toggleErrors(idx) {{
     const row = document.getElementById('errors-' + idx);
     row.style.display = row.style.display === 'none' ? 'table-row' : 'none';

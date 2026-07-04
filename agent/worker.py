@@ -126,11 +126,19 @@ class Worker:
                 logger.error(f"Integratie {key} laden mislukt: {e}")
 
     def _refresh_config(self):
-        """Haal config op van platform en herlaad integraties."""
+        """Haal config op van platform en herlaad integraties. Is de backend
+        onbereikbaar (bijv. bij opstarten zonder verbinding), val dan terug op de
+        laatst bekende integraties uit config.json in plaats van leeg te starten."""
         remote_config = self.api.get_config()
         if remote_config:
-            self._load_integrations(remote_config.get("integrations", []))
+            self.config.set("integrations", remote_config.get("integrations", []))
             self.config.set("delivery_interval_seconds", remote_config.get("delivery_interval_seconds", DEFAULT_DELIVERY_INTERVAL))
+            self._load_integrations(remote_config.get("integrations", []))
+        elif not self.integrations:
+            cached = self.config.get("integrations", [])
+            if cached:
+                logger.warning("Backend onbereikbaar, val terug op laatst bekende integraties uit cache")
+                self._load_integrations(cached)
 
     def _process_signals(self):
         """Verwerk signalen die mtd-core doorzet (WS-berichten die de worker raken).
