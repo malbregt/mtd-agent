@@ -65,7 +65,10 @@ def setup():
     if ssid:
         connect_wifi(ssid, password)
 
-    subprocess.Popen(["bash", "-c", "sleep 2 && systemctl restart mtd-agent && systemctl stop mtd-portal"])
+    subprocess.Popen(["bash", "-c",
+        "sleep 2 && systemctl enable mtd-core mtd-worker "
+        "&& systemctl restart mtd-core mtd-worker "
+        "&& systemctl disable mtd-portal && systemctl stop mtd-portal"])
 
     return jsonify({"status": "ok", "message": "Apparaat geconfigureerd, agent start..."})
 

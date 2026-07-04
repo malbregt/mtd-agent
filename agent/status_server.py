@@ -1,48 +1,29 @@
 import json
 import logging
 import os
-import sqlite3
 import subprocess
 import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import state
+from version import VERSION
+
 logger = logging.getLogger("status")
 
-DB_PATH = os.environ.get("MTD_DB", "/opt/mtd-agent/cache.db")
 CONFIG_PATH = os.environ.get("MTD_CONFIG", "/opt/mtd-agent/config.json")
-VERSION = "1.0.5"
-_start_time = time.time()
+
+# Als de worker langer dan dit niet meer geschreven heeft naar state.json,
+# tonen we hem als "niet reagerend" i.p.v. de (dan verouderde) laatste cijfers
+# alsof er niets aan de hand is.
+WORKER_STALE_AFTER = 30
 
 
-def get_uptime():
-    seconds = int(time.time() - _start_time)
+def get_uptime(start_time: float) -> str:
+    seconds = int(time.time() - start_time)
     h, m = divmod(seconds // 60, 60)
     return f"{h}u {m}m"
-
-
-def get_pending_readings():
-    try:
-        con = sqlite3.connect(DB_PATH)
-        count = con.execute("SELECT COUNT(*) FROM readings WHERE synced = 0").fetchone()[0]
-        con.close()
-        return count
-    except Exception:
-        return "?"
-
-
-def get_pending_counts_by_integration():
-    """Aantal wachtende readings per customer_integration_id."""
-    try:
-        con = sqlite3.connect(DB_PATH)
-        rows = con.execute(
-            "SELECT customer_integration_id, COUNT(*) FROM readings WHERE synced = 0 GROUP BY customer_integration_id"
-        ).fetchall()
-        con.close()
-        return {r[0]: r[1] for r in rows}
-    except Exception:
-        return {}
 
 
 def get_network_info():
@@ -71,7 +52,7 @@ def factory_reset():
         os.remove(CONFIG_PATH)
     except Exception:
         pass
-    subprocess.Popen(["bash", "-c", "sleep 2 && bash /opt/mtd-agent/scripts/setup-hotspot.sh && systemctl stop mtd-agent"])
+    subprocess.Popen(["bash", "-c", "sleep 2 && bash /opt/mtd-agent/scripts/setup-hotspot.sh && systemctl stop mtd-core mtd-worker"])
 
 
 def connect_wifi(ssid: str, password: str):
@@ -112,35 +93,16 @@ def _format_error_time(iso_time):
         return "?"
 
 
-def _build_integration_row(iid, integration, agent, pending_counts):
-    """Bouw een status-rij voor 1 integratie. Geeft nooit een exception door,
-    zodat een kapotte/onverwachte configuratie nooit de hele statuspagina meesleurt."""
-    try:
-        last = agent._last_poll.get(iid, None)
-        return {
-            "name": integration.name,
-            "type": integration.config.get("type", "?"),
-            "poll_interval": integration.poll_interval,
-            "last_poll": datetime.fromtimestamp(last).strftime("%H:%M:%S") if last else "nog niet",
-            "errors": integration._error_count,
-            "recent_errors": list(integration._recent_errors),
-            "pending": pending_counts.get(integration.customer_integration_id, 0),
-        }
-    except Exception as e:
-        logger.error(f"Fout bij opbouwen statusrij voor {iid}: {e}")
-        return {
-            "name": getattr(integration, "name", str(iid)),
-            "type": "?",
-            "poll_interval": "?",
-            "last_poll": "?",
-            "errors": "?",
-            "recent_errors": [],
-            "pending": "?",
-        }
+def _worker_snapshot():
+    """Laatst bekende worker-status + of die vers genoeg is om te vertrouwen."""
+    snap = state.read()
+    written_at = snap.get("written_at")
+    stale = written_at is None or (time.time() - written_at) > WORKER_STALE_AFTER
+    return snap, stale
 
 
 class StatusHandler(BaseHTTPRequestHandler):
-    agent_ref = None
+    core_ref = None
 
     def log_message(self, format, *args):
         pass
@@ -169,6 +131,7 @@ class StatusHandler(BaseHTTPRequestHandler):
                 pass
 
     def _do_POST(self):
+        core = StatusHandler.core_ref
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length)) if length else {}
 
@@ -185,6 +148,20 @@ class StatusHandler(BaseHTTPRequestHandler):
             factory_reset()
             self.send_json(200, {"status": "ok", "message": "Factory reset gestart, Pi herstart in hotspot modus."})
 
+        elif self.path == "/api/update":
+            version = (body.get("version") or "").strip()
+            if not version:
+                self.send_json(400, {"error": "Geen versie opgegeven"})
+                return
+            if core is None:
+                self.send_json(500, {"error": "Core niet beschikbaar"})
+                return
+            if core.update_status in ("pending", "updating"):
+                self.send_json(409, {"error": "Er loopt al een update"})
+                return
+            core.run_update(version)
+            self.send_json(200, {"status": "ok", "message": f"Update naar {version} gestart..."})
+
         else:
             self.send_json(404, {"error": "Niet gevonden"})
 
@@ -199,21 +176,22 @@ class StatusHandler(BaseHTTPRequestHandler):
                 pass
 
     def _do_GET(self):
-        agent = StatusHandler.agent_ref
+        core = StatusHandler.core_ref
         net = get_network_info()
+        worker_state, worker_stale = _worker_snapshot()
+        integrations = worker_state.get("integrations", [])
 
         if self.path == "/status.json":
-            integrations = []
-            if agent:
-                pending_counts = get_pending_counts_by_integration()
-                for iid, integration in list(agent.integrations.items()):
-                    integrations.append(_build_integration_row(iid, integration, agent, pending_counts))
             self.send_json(200, {
                 "version": VERSION,
-                "uptime": get_uptime(),
-                "pending_readings": get_pending_readings(),
+                "core_uptime": get_uptime(core._start_time) if core else "?",
+                "worker_version": worker_state.get("version"),
+                "worker_stale": worker_stale,
+                "pending_readings": worker_state.get("pending_readings", "?"),
                 "integrations": integrations,
                 "network": net,
+                "update_status": core.update_status if core else "idle",
+                "update_error": core.update_error if core else None,
             })
             return
 
@@ -222,21 +200,17 @@ class StatusHandler(BaseHTTPRequestHandler):
             return
 
         # HTML
-        integrations = []
-        if agent:
-            pending_counts = get_pending_counts_by_integration()
-            for iid, integration in list(agent.integrations.items()):
-                integrations.append(_build_integration_row(iid, integration, agent, pending_counts))
-
         rows = ""
         for idx, i in enumerate(integrations):
             try:
                 has_errors = isinstance(i["errors"], int) and i["errors"] > 0
                 kleur = "#f8d7da" if has_errors else "#d4edda"
                 klik = f'onclick="toggleErrors({idx})" style="cursor:pointer"' if has_errors else ""
+                last_poll = i["last_poll"]
+                last_poll_label = datetime.fromtimestamp(last_poll).strftime("%H:%M:%S") if last_poll else "nog niet"
                 rows += f"""<tr style="background:{kleur}" {klik}>
                     <td>{i['name']}</td><td>{i['type']}</td>
-                    <td>{i['poll_interval']}s</td><td>{i['last_poll']}</td>
+                    <td>{i['poll_interval']}s</td><td>{last_poll_label}</td>
                     <td>{i['pending']}</td>
                     <td>{'✓' if not has_errors else f"✗ {i['errors']} fout(en) &#9662;"}</td>
                 </tr>"""
@@ -252,11 +226,20 @@ class StatusHandler(BaseHTTPRequestHandler):
                 logger.error(f"Fout bij renderen statusrij {idx}: {e}")
                 rows += f"""<tr style="background:#f8d7da"><td colspan="6">Fout bij weergeven van deze integratie</td></tr>"""
 
-        # Auto-refresh gelijk aan de kortste poll_interval van de actieve integraties
-        # (zodat "Laatste poll" en "Wachtend" up-to-date blijven), met een ondergrens
-        # van 5s om de Pi niet nodeloos te belasten en een bovengrens/fallback van 30s.
         poll_intervals = [i["poll_interval"] for i in integrations if isinstance(i["poll_interval"], int)]
         refresh_seconds = max(5, min(poll_intervals)) if poll_intervals else 30
+
+        worker_banner = ""
+        if worker_stale:
+            worker_banner = """<div class="banner warn">Worker-proces reageert niet (of nog niet gestart) - cijfers hieronder kunnen verouderd zijn.</div>"""
+
+        update_status = core.update_status if core else "idle"
+        update_error = core.update_error if core else None
+        update_banner = ""
+        if update_status == "updating" or update_status == "pending":
+            update_banner = """<div class="banner info">Update wordt geïnstalleerd... de pagina kan even niet reageren als mtd-core zelf herstart.</div>"""
+        elif update_status == "failed" and update_error:
+            update_banner = f"""<div class="banner warn">Laatste update mislukt: {update_error[:300]}</div>"""
 
         html = f"""<!DOCTYPE html>
 <html lang="nl">
@@ -289,6 +272,9 @@ class StatusHandler(BaseHTTPRequestHandler):
     .status-msg{{margin-top:12px;padding:10px;border-radius:8px;font-size:0.9rem;display:none}}
     .status-msg.ok{{background:#d4edda;color:#155724;display:block}}
     .status-msg.err{{background:#f8d7da;color:#721c24;display:block}}
+    .banner{{margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:0.85rem}}
+    .banner.warn{{background:#fff3cd;color:#856404}}
+    .banner.info{{background:#d1ecf1;color:#0c5460}}
     .footer{{margin-top:16px;font-size:0.75rem;color:#aaa}}
     .error-detail td{{background:#fff5f5;padding:0}}
     .error-list{{list-style:none;padding:10px 16px;margin:0;max-height:220px;overflow-y:auto}}
@@ -299,11 +285,15 @@ class StatusHandler(BaseHTTPRequestHandler):
 </head>
 <body>
   <h1>MTD Agent</h1>
-  <p class="sub">Versie {VERSION} · Uptime {get_uptime()}</p>
+  <p class="sub">Core versie {VERSION} · Core uptime {get_uptime(core._start_time) if core else "?"} · Worker versie {worker_state.get("version") or "?"}</p>
+
+  {worker_banner}
+  {update_banner}
 
   <div class="tabs">
     <button class="tab active" onclick="tab('status')">Status</button>
     <button class="tab" onclick="tab('netwerk')">Netwerk</button>
+    <button class="tab" onclick="tab('update')">Update</button>
     <button class="tab" onclick="tab('reset')">Reset</button>
     <button class="tab" onclick="location.reload()" style="margin-left:auto" title="Nu verversen">&#8635; Ververs</button>
   </div>
@@ -311,7 +301,7 @@ class StatusHandler(BaseHTTPRequestHandler):
   <!-- Status -->
   <div class="panel active" id="panel-status">
     <div class="grid">
-      <div class="card"><div class="label">Wachtend op sync</div><div class="value">{get_pending_readings()}</div></div>
+      <div class="card"><div class="label">Wachtend op sync</div><div class="value">{worker_state.get("pending_readings", "?")}</div></div>
       <div class="card"><div class="label">Integraties</div><div class="value">{len(integrations)}</div></div>
       <div class="card"><div class="label">IP adres</div><div class="value" style="font-size:0.95rem">{net['ip']}</div></div>
     </div>
@@ -340,6 +330,22 @@ class StatusHandler(BaseHTTPRequestHandler):
     </div>
   </div>
 
+  <!-- Update -->
+  <div class="panel" id="panel-update">
+    <div class="card">
+      <strong style="font-size:0.95rem">Update lokaal installeren</strong>
+      <p style="font-size:0.85rem;color:#666;margin-top:6px">
+        Werkt ook zonder verbinding met het platform. Vul de gewenste versie/tag in (bijv. v1.0.6).
+      </p>
+      <label>Versie / tag</label>
+      <input type="text" id="update-version" placeholder="v1.0.6">
+      <button class="primary" onclick="doUpdate()" {"disabled" if update_status in ("pending", "updating") else ""}>
+        {"Bezig met updaten..." if update_status in ("pending", "updating") else "Update installeren"}
+      </button>
+      <div class="status-msg" id="update-status"></div>
+    </div>
+  </div>
+
   <!-- Reset -->
   <div class="panel" id="panel-reset">
     <div class="card">
@@ -359,14 +365,14 @@ class StatusHandler(BaseHTTPRequestHandler):
   }}
 
   function tab(name) {{
-    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['status','netwerk','reset'][i] === name));
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['status','netwerk','update','reset'][i] === name));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     document.getElementById('panel-' + name).classList.add('active');
     if (name === 'netwerk') loadNetworks();
   }}
 
   // Automatisch verversen op het interval van de snelste integratie, maar alleen
-  // terwijl de Status-tab actief is (niet storen tijdens WiFi instellen/reset).
+  // terwijl de Status-tab actief is (niet storen tijdens WiFi/update/reset instellen).
   setInterval(() => {{
     if (document.getElementById('panel-status').classList.contains('active')) {{
       location.reload();
@@ -394,6 +400,21 @@ class StatusHandler(BaseHTTPRequestHandler):
     msg.textContent = data.message || data.error;
   }}
 
+  async function doUpdate() {{
+    const version = document.getElementById('update-version').value.trim();
+    const msg = document.getElementById('update-status');
+    if (!version) {{ msg.className = 'status-msg err'; msg.textContent = 'Vul een versie/tag in'; return; }}
+    const resp = await fetch('/api/update', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{version}})
+    }});
+    const data = await resp.json();
+    msg.className = 'status-msg ' + (resp.ok ? 'ok' : 'err');
+    msg.textContent = data.message || data.error;
+    if (resp.ok) setTimeout(() => location.reload(), 2000);
+  }}
+
   async function doReset() {{
     if (!confirm('Weet je zeker dat je een factory reset wilt uitvoeren?')) return;
     const msg = document.getElementById('reset-status');
@@ -412,9 +433,9 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
 
-def start_status_server(agent, port=8080):
-    StatusHandler.agent_ref = agent
+def start_status_server(core, port=8080):
+    StatusHandler.core_ref = core
     server = HTTPServer(("0.0.0.0", port), StatusHandler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
-    logger.info(f"Statuspagina beschikbaar op http://mtd-agent.local:8080")
+    logger.info(f"Statuspagina beschikbaar op http://mtd-agent.local:{port}")

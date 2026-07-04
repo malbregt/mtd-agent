@@ -12,7 +12,7 @@ curl -sSL https://raw.githubusercontent.com/malbregt/mtd-agent/main/install.sh |
 
 **Eerste installatie:** de Pi start automatisch een hotspot `MTD-Setup`. Verbind hiermee en configureer het apparaat via de captive portal.
 
-**Update:** het script detecteert een bestaande installatie en herstart alleen de agent.
+**Update:** het script detecteert een bestaande installatie. `mtd-worker` (integraties/sync) wordt altijd herstart; `mtd-core` (heartbeat/WebSocket/OTA/statuspagina) alleen als de update ook core-bestanden wijzigt — zo blijft de statuspagina bij een gewone integratie-fix gewoon bereikbaar.
 
 ## Onboarding
 
@@ -32,7 +32,12 @@ mtd-agent/
 ├── requirements.txt
 ├── config.example.json
 ├── agent/
-│   ├── main.py                   # Entry point + hoofdloop
+│   ├── core.py                   # mtd-core: heartbeat, WebSocket, OTA, statuspagina
+│   ├── worker.py                 # mtd-worker: integraties laden/pollen/syncen
+│   ├── version.py                # Gedeelde VERSION-constante
+│   ├── signals.py                # Lokale signaal-queue core → worker
+│   ├── state.py                  # Gedeeld state-bestand worker → core
+│   ├── status_server.py          # Lokale statuspagina (draait binnen mtd-core)
 │   ├── config.py                 # Config manager
 │   ├── api.py                    # Platform API client
 │   ├── sync.py                   # SQLite cache + sync
@@ -48,8 +53,9 @@ mtd-agent/
 │   └── templates/
 │       └── index.html            # Portal UI
 ├── systemd/
-│   ├── mtd-agent.service         # Agent service
-│   └── mtd-portal.service        # Portal service
+│   ├── mtd-core.service          # Core service (altijd actief)
+│   ├── mtd-worker.service        # Worker service (integraties)
+│   └── mtd-portal.service        # Portal service (alleen bij eerste setup)
 └── scripts/
     └── setup-hotspot.sh          # WiFi hotspot instellen
 ```
@@ -63,7 +69,9 @@ Elke plugin erft van `BaseIntegration` en implementeert de `poll()` methode.
 ## Beheer
 
 ```bash
-sudo systemctl status mtd-agent
-sudo journalctl -u mtd-agent -f
-sudo systemctl restart mtd-agent
+sudo systemctl status mtd-core mtd-worker
+sudo journalctl -u mtd-core -f    # heartbeat, WebSocket, OTA, statuspagina
+sudo journalctl -u mtd-worker -f  # integraties, sync
+sudo systemctl restart mtd-core
+sudo systemctl restart mtd-worker
 ```
