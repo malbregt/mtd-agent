@@ -76,6 +76,23 @@ class EnphaseIntegration(BaseIntegration):
         return data
 
     @staticmethod
+    def _fetch_inverters(host: str, token: str) -> list:
+        """Haal per-omvormer productiedata op. Deze endpoint is los van /api/v1/production
+        en kan apart falen (bv. striktere token-vereisten op sommige Envoy-firmware),
+        dus fouten hier mogen de aggregaatdata niet blokkeren."""
+        resp = requests.get(
+            f"{host}/api/v1/production/inverters",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+            verify=False,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, list):
+            raise RuntimeError(f"Onverwacht antwoord van Envoy (geen omvormer-lijst): {data}")
+        return data
+
+    @staticmethod
     def test_connection(config: dict) -> dict:
         host = BaseIntegration.normalize_host(config.get("host"), default_scheme="https")
         username = config.get("username")
@@ -110,6 +127,17 @@ class EnphaseIntegration(BaseIntegration):
                 logger.info(f"Enphase JWT ververst, geldig tot {datetime.fromtimestamp(token_exp, tz=timezone.utc).isoformat()}")
 
             data = self._fetch_production(host, token)
+
+            try:
+                inverters = self._fetch_inverters(host, token)
+                data["inverters"] = [
+                    {"serial": inv.get("serialNumber"), "watts": inv.get("lastReportWatts")}
+                    for inv in inverters
+                    if inv.get("serialNumber") and inv.get("lastReportWatts") is not None
+                ]
+            except (requests.RequestException, RuntimeError) as e:
+                logger.warning(f"Enphase omvormer-lijst ophalen mislukt: {e}")
+
             timestamp = datetime.now(timezone.utc).isoformat()
             self.store_reading(timestamp, data)
             self.report_ok()
