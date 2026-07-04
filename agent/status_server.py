@@ -1,4 +1,4 @@
-import html
+import html as html_escape_lib
 import json
 import logging
 import os
@@ -372,12 +372,12 @@ class StatusHandler(BaseHTTPRequestHandler):
       </p>
       <label>Instance key (dev_...)</label>
       <div style="display:flex;gap:6px">
-        <input type="password" id="settings-instance-key" value="{html.escape(core.config.get("instance_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
+        <input type="password" id="settings-instance-key" value="{html_escape_lib.escape(core.config.get("instance_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
         <button type="button" onclick="togglePw('settings-instance-key', this)">Toon</button>
       </div>
       <label>API key (ea_...)</label>
       <div style="display:flex;gap:6px">
-        <input type="password" id="settings-api-key" value="{html.escape(core.config.get("api_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
+        <input type="password" id="settings-api-key" value="{html_escape_lib.escape(core.config.get("api_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
         <button type="button" onclick="togglePw('settings-api-key', this)">Toon</button>
       </div>
       <button class="primary" onclick="saveSettings()">Opslaan</button>
