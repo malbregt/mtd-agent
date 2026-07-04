@@ -93,6 +93,14 @@ def _format_error_time(iso_time):
         return "?"
 
 
+def _mask_secret(value: str | None) -> str:
+    """Toon nooit de volledige waarde in de pagina - alleen een prefix ter
+    herkenning, zodat een token niet in de HTML-broncode terechtkomt."""
+    if not value:
+        return "(niet ingesteld)"
+    return f"{value[:8]}…" if len(value) > 8 else f"{value[:3]}…"
+
+
 def _worker_snapshot():
     """Laatst bekende worker-status + of die vers genoeg is om te vertrouwen."""
     snap = state.read()
@@ -161,6 +169,25 @@ class StatusHandler(BaseHTTPRequestHandler):
                 return
             core.run_update(version)
             self.send_json(200, {"status": "ok", "message": f"Update naar {version} gestart..."})
+
+        elif self.path == "/api/settings":
+            if core is None:
+                self.send_json(500, {"error": "Core niet beschikbaar"})
+                return
+            instance_key = (body.get("instance_key") or "").strip()
+            api_key = (body.get("api_key") or "").strip()
+            if not instance_key and not api_key:
+                self.send_json(400, {"error": "Niets om op te slaan"})
+                return
+            if instance_key:
+                core.config.set("instance_key", instance_key)
+            if api_key:
+                core.config.set("api_key", api_key)
+            # mtd-core en mtd-worker lezen config.json alleen bij opstarten in, dus
+            # beide moeten herstarten om de nieuwe waarde(n) te gaan gebruiken. Kleine
+            # vertraging zodat dit antwoord de browser nog haalt vóór de herstart.
+            subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-core mtd-worker"])
+            self.send_json(200, {"status": "ok", "message": "Opgeslagen, mtd-core en mtd-worker herstarten..."})
 
         else:
             self.send_json(404, {"error": "Niet gevonden"})
@@ -293,6 +320,7 @@ class StatusHandler(BaseHTTPRequestHandler):
   <div class="tabs">
     <button class="tab active" onclick="tab('status')">Status</button>
     <button class="tab" onclick="tab('netwerk')">Netwerk</button>
+    <button class="tab" onclick="tab('instellingen')">Instellingen</button>
     <button class="tab" onclick="tab('update')">Update</button>
     <button class="tab" onclick="tab('reset')">Reset</button>
     <button class="tab" onclick="location.reload()" style="margin-left:auto" title="Nu verversen">&#8635; Ververs</button>
@@ -327,6 +355,24 @@ class StatusHandler(BaseHTTPRequestHandler):
       <input type="password" id="wifi-pass" placeholder="Laat leeg voor open netwerk">
       <button class="primary" onclick="saveWifi()">Verbinden</button>
       <div class="status-msg" id="wifi-status"></div>
+    </div>
+  </div>
+
+  <!-- Instellingen -->
+  <div class="panel" id="panel-instellingen">
+    <div class="card">
+      <strong style="font-size:0.95rem">Platform-koppeling</strong>
+      <p style="font-size:0.85rem;color:#666;margin-top:6px">
+        Herstart mtd-core en mtd-worker na opslaan, zodat de nieuwe waarde direct gebruikt wordt.
+      </p>
+      <label>Instance key (dev_...)</label>
+      <p style="font-size:0.8rem;color:#999;margin:2px 0 4px">Huidig: <code>{_mask_secret(core.config.get("instance_key")) if core else "?"}</code></p>
+      <input type="password" id="settings-instance-key" placeholder="Laat leeg om ongewijzigd te laten">
+      <label>API key (ea_...)</label>
+      <p style="font-size:0.8rem;color:#999;margin:2px 0 4px">Huidig: <code>{_mask_secret(core.config.get("api_key")) if core else "?"}</code></p>
+      <input type="password" id="settings-api-key" placeholder="Laat leeg om ongewijzigd te laten">
+      <button class="primary" onclick="saveSettings()">Opslaan</button>
+      <div class="status-msg" id="settings-status"></div>
     </div>
   </div>
 
@@ -365,7 +411,7 @@ class StatusHandler(BaseHTTPRequestHandler):
   }}
 
   function tab(name) {{
-    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['status','netwerk','update','reset'][i] === name));
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['status','netwerk','instellingen','update','reset'][i] === name));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     document.getElementById('panel-' + name).classList.add('active');
     if (name === 'netwerk') loadNetworks();
@@ -398,6 +444,22 @@ class StatusHandler(BaseHTTPRequestHandler):
     const data = await resp.json();
     msg.className = 'status-msg ' + (resp.ok ? 'ok' : 'err');
     msg.textContent = data.message || data.error;
+  }}
+
+  async function saveSettings() {{
+    const instanceKey = document.getElementById('settings-instance-key').value.trim();
+    const apiKey = document.getElementById('settings-api-key').value.trim();
+    const msg = document.getElementById('settings-status');
+    if (!instanceKey && !apiKey) {{ msg.className = 'status-msg err'; msg.textContent = 'Niets om op te slaan'; return; }}
+    const resp = await fetch('/api/settings', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{instance_key: instanceKey, api_key: apiKey}})
+    }});
+    const data = await resp.json();
+    msg.className = 'status-msg ' + (resp.ok ? 'ok' : 'err');
+    msg.textContent = data.message || data.error;
+    if (resp.ok) setTimeout(() => location.reload(), 3000);
   }}
 
   async function doUpdate() {{
