@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -91,14 +92,6 @@ def _format_error_time(iso_time):
         return datetime.fromisoformat(iso_time).astimezone().strftime("%H:%M:%S")
     except Exception:
         return "?"
-
-
-def _mask_secret(value: str | None) -> str:
-    """Toon nooit de volledige waarde in de pagina - alleen een prefix ter
-    herkenning, zodat een token niet in de HTML-broncode terechtkomt."""
-    if not value:
-        return "(niet ingesteld)"
-    return f"{value[:8]}…" if len(value) > 8 else f"{value[:3]}…"
 
 
 def _worker_snapshot():
@@ -378,15 +371,13 @@ class StatusHandler(BaseHTTPRequestHandler):
         Herstart mtd-core en mtd-worker na opslaan, zodat de nieuwe waarde direct gebruikt wordt.
       </p>
       <label>Instance key (dev_...)</label>
-      <p style="font-size:0.8rem;color:#999;margin:2px 0 4px">Huidig: <code>{_mask_secret(core.config.get("instance_key")) if core else "?"}</code></p>
       <div style="display:flex;gap:6px">
-        <input type="password" id="settings-instance-key" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
+        <input type="password" id="settings-instance-key" value="{html.escape(core.config.get("instance_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
         <button type="button" onclick="togglePw('settings-instance-key', this)">Toon</button>
       </div>
       <label>API key (ea_...)</label>
-      <p style="font-size:0.8rem;color:#999;margin:2px 0 4px">Huidig: <code>{_mask_secret(core.config.get("api_key")) if core else "?"}</code></p>
       <div style="display:flex;gap:6px">
-        <input type="password" id="settings-api-key" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
+        <input type="password" id="settings-api-key" value="{html.escape(core.config.get("api_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
         <button type="button" onclick="togglePw('settings-api-key', this)">Toon</button>
       </div>
       <button class="primary" onclick="saveSettings()">Opslaan</button>
