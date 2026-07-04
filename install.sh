@@ -24,7 +24,12 @@ apt-get install -y -qq python3 python3-pip python3-venv git curl sqlite3
 
 # 2. Agent downloaden of updaten
 echo "[2/6] Agent downloaden..."
-CORE_CHANGED=true  # bij eerste installatie of migratie: altijd core (opnieuw) starten
+CORE_CHANGED=true  # bij eerste installatie: altijd core starten
+LEGACY_MIGRATION=false
+if systemctl list-unit-files | grep -q "^${LEGACY_SERVICE}.service"; then
+  LEGACY_MIGRATION=true
+fi
+
 if [ -d "$INSTALL_DIR/.git" ]; then
   cd $INSTALL_DIR
   OLD_COMMIT=$(git rev-parse HEAD)
@@ -36,14 +41,12 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git pull
   fi
   NEW_COMMIT=$(git rev-parse HEAD)
-  if [ "$OLD_COMMIT" != "$NEW_COMMIT" ]; then
+  if [ "$OLD_COMMIT" != "$NEW_COMMIT" ] && [ "$LEGACY_MIGRATION" = false ]; then
     if git diff --name-only "$OLD_COMMIT" "$NEW_COMMIT" | grep -qE "$CORE_FILE_PATTERN"; then
       CORE_CHANGED=true
     else
       CORE_CHANGED=false
     fi
-  else
-    CORE_CHANGED=false
   fi
 else
   git clone $REPO $INSTALL_DIR
@@ -72,17 +75,6 @@ echo "[5/6] Services installeren..."
 cp $INSTALL_DIR/systemd/mtd-core.service /etc/systemd/system/
 cp $INSTALL_DIR/systemd/mtd-worker.service /etc/systemd/system/
 cp $INSTALL_DIR/systemd/mtd-portal.service /etc/systemd/system/
-
-# Migratie: oude alles-in-1 service (vóór de core/worker-splitsing) opruimen
-# als die nog op dit apparaat draait.
-if systemctl list-unit-files | grep -q "^${LEGACY_SERVICE}.service"; then
-  echo "  Migreren van oude ${LEGACY_SERVICE}.service naar losse mtd-core/mtd-worker services..."
-  systemctl stop ${LEGACY_SERVICE} 2>/dev/null || true
-  systemctl disable ${LEGACY_SERVICE} 2>/dev/null || true
-  rm -f /etc/systemd/system/${LEGACY_SERVICE}.service
-  CORE_CHANGED=true
-fi
-
 systemctl daemon-reload
 
 # 6. Starten
@@ -98,15 +90,32 @@ else
   systemctl disable $SERVICE_PORTAL 2>/dev/null || true
   systemctl stop $SERVICE_PORTAL 2>/dev/null || true
 
-  # Worker mag altijd herstarten - dat raakt nooit de statuspagina/heartbeat.
+  # Nieuwe services eerst starten: dit zijn onafhankelijke systemd-units die
+  # blijven draaien ook als dit script zelf zo dadelijk wordt afgebroken
+  # (zie migratiestap hieronder).
   systemctl restart $SERVICE_WORKER
 
-  # Core alleen herstarten als core-bestanden ook echt gewijzigd zijn, zodat de
-  # statuspagina/heartbeat bij een gewone integratie-/workerfix online blijft.
-  if [ "$CORE_CHANGED" = true ]; then
+  # Core alleen herstarten als core-bestanden ook echt gewijzigd zijn (of bij
+  # een migratie), zodat de statuspagina/heartbeat bij een gewone integratie-
+  # /workerfix online blijft.
+  if [ "$CORE_CHANGED" = true ] || [ "$LEGACY_MIGRATION" = true ]; then
     systemctl restart $SERVICE_CORE
   else
     echo "  Geen core-wijzigingen gedetecteerd, mtd-core blijft doorlopen."
+  fi
+
+  # Migratie: oude alles-in-1 service pas NU opruimen, als allerlaatste stap.
+  # Als deze update zelf via die oude mtd-agent.service is getriggerd, draait
+  # dit script als kindproces daarvan - 'systemctl stop' hierop kan de hele
+  # cgroup (dus ook dit script) meteen afbreken. Dat mag pas gebeuren nadat
+  # mtd-core/mtd-worker al zelfstandig draaien, anders eindigt het apparaat
+  # zonder enige actieve service.
+  if [ "$LEGACY_MIGRATION" = true ]; then
+    echo "  Migratie: oude ${LEGACY_SERVICE}.service opruimen..."
+    systemctl disable ${LEGACY_SERVICE} 2>/dev/null || true
+    rm -f /etc/systemd/system/${LEGACY_SERVICE}.service
+    systemctl daemon-reload
+    systemctl stop ${LEGACY_SERVICE} 2>/dev/null || true
   fi
 fi
 
