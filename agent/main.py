@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mtd-agent")
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 HEARTBEAT_INTERVAL = 30
 CONFIG_POLL_INTERVAL = 300  # 5 minuten, fallback voor WebSocket
 DEFAULT_DELIVERY_INTERVAL = 900  # 15 minuten, fallback als backend geen waarde meestuurt
