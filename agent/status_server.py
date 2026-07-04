@@ -12,7 +12,7 @@ logger = logging.getLogger("status")
 
 DB_PATH = os.environ.get("MTD_DB", "/opt/mtd-agent/cache.db")
 CONFIG_PATH = os.environ.get("MTD_CONFIG", "/opt/mtd-agent/config.json")
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 _start_time = time.time()
 
 

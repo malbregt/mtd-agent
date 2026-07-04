@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mtd-agent")
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 HEARTBEAT_INTERVAL = 30
 CONFIG_POLL_INTERVAL = 300  # 5 minuten, fallback voor WebSocket
 DEFAULT_DELIVERY_INTERVAL = 900  # 15 minuten, fallback als backend geen waarde meestuurt
@@ -164,7 +164,9 @@ class Agent:
         en we kunnen het falen hier nog wel actief rapporteren."""
         import subprocess
         try:
-            cmd = ["/opt/mtd-agent/install.sh"] + ([target_version] if target_version else [])
+            # Via bash aanroepen i.p.v. rechtstreeks: install.sh hoeft dan niet zelf
+            # het execute-bit te hebben (dat kan verloren gaan na een git checkout).
+            cmd = ["bash", "/opt/mtd-agent/install.sh"] + ([target_version] if target_version else [])
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             if result.returncode != 0:
                 logger.error(f"Update mislukt: {result.stderr[-2000:]}")
