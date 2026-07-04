@@ -54,12 +54,28 @@ class AgentAPIClient:
         try:
             resp = requests.post(
                 f"{API_URL}/agent/heartbeat",
-                json={"version": version, "ip": ip},
+                json={"agent_version": version, "ip_address": ip},
                 headers=self.headers,
                 timeout=5
             )
             return resp.status_code == 200
         except requests.RequestException:
+            return False
+
+    def send_update_result(self, success: bool, version: str | None, error: str | None):
+        """Rapporteer een mislukte OTA-update. Bij succes herstart install.sh dit proces
+        vóórdat succes zelf gemeld kan worden — dat wordt bevestigd via de eerstvolgende
+        heartbeat in plaats van hier."""
+        try:
+            resp = requests.post(
+                f"{API_URL}/agent/update-result",
+                json={"success": success, "version": version, "error": error},
+                headers=self.headers,
+                timeout=10,
+            )
+            return resp.status_code == 200
+        except requests.RequestException as e:
+            logger.warning(f"Update-result rapporteren mislukt: {e}")
             return False
 
     def send_readings(self, readings: list):

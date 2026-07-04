@@ -5,6 +5,7 @@ REPO="https://github.com/malbregt/mtd-agent.git"
 INSTALL_DIR="/opt/mtd-agent"
 SERVICE_AGENT="mtd-agent"
 SERVICE_PORTAL="mtd-portal"
+TARGET_VERSION="${1:-}"
 
 echo "=== MTD Agent Installer ==="
 
@@ -16,9 +17,19 @@ apt-get install -y -qq python3 python3-pip python3-venv git curl sqlite3
 # 2. Agent downloaden of updaten
 echo "[2/6] Agent downloaden..."
 if [ -d "$INSTALL_DIR/.git" ]; then
-  cd $INSTALL_DIR && git pull
+  cd $INSTALL_DIR
+  git fetch --tags origin
+  if [ -n "$TARGET_VERSION" ]; then
+    git checkout "$TARGET_VERSION"
+  else
+    git checkout master
+    git pull
+  fi
 else
   git clone $REPO $INSTALL_DIR
+  if [ -n "$TARGET_VERSION" ]; then
+    cd $INSTALL_DIR && git checkout "$TARGET_VERSION"
+  fi
 fi
 
 # 3. Python omgeving

@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import socket
 import threading
 import time
@@ -19,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mtd-agent")
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 HEARTBEAT_INTERVAL = 30
 CONFIG_POLL_INTERVAL = 300  # 5 minuten, fallback voor WebSocket
 DEFAULT_DELIVERY_INTERVAL = 900  # 15 minuten, fallback als backend geen waarde meestuurt
@@ -152,8 +151,27 @@ class Agent:
             self._refresh_config()
 
         elif msg_type == "update":
-            logger.info(f"OTA update beschikbaar: {data.get('version')}")
-            os.system("/opt/mtd-agent/install.sh")
+            target = data.get("version")
+            logger.info(f"OTA update beschikbaar: {target}")
+            threading.Thread(target=self._run_update, args=(target,), daemon=True).start()
+
+    def _run_update(self, target_version):
+        """Voer install.sh uit met de gevraagde tag. Bij succes eindigt install.sh met
+        'systemctl restart mtd-agent', wat dit proces killt vóórdat het zelf succes kan
+        rapporteren - succes wordt daarom bevestigd via heartbeat-reconciliatie op de
+        backend zodra de herstarte agent zijn nieuwe agent_version meldt. Bij falen stopt
+        install.sh (dankzij 'set -e') vóór die restart, dus de oude versie blijft draaien
+        en we kunnen het falen hier nog wel actief rapporteren."""
+        import subprocess
+        try:
+            cmd = ["/opt/mtd-agent/install.sh"] + ([target_version] if target_version else [])
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                logger.error(f"Update mislukt: {result.stderr[-2000:]}")
+                self.api.send_update_result(success=False, version=None, error=result.stderr[-2000:])
+        except Exception as e:
+            logger.error(f"Update-fout: {e}")
+            self.api.send_update_result(success=False, version=None, error=str(e))
 
     async def _handle_test_integration(self, data: dict, ws):
         """Test een integratieconfig zonder deze op te slaan en stuur test_result terug."""
