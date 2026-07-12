@@ -366,7 +366,7 @@ class StatusHandler(BaseHTTPRequestHandler):
       <p style="font-size:0.85rem;color:#666;margin-top:6px">
         Herstart mtd-core en mtd-worker na opslaan, zodat de nieuwe waarde direct gebruikt wordt.
       </p>
-      <label>Instance key (dev_...)</label>
+      <label>Instance key (mtd_agent_...)</label>
       <div style="display:flex;gap:6px">
         <input type="password" id="settings-instance-key" value="{html_escape_lib.escape(core.config.get("instance_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
         <button type="button" onclick="togglePw('settings-instance-key', this)">Toon</button>

@@ -1,5 +1,5 @@
 {
-  "instance_key": "dev_xxxxxxxxxxxxxxxxxxxx",
+  "instance_key": "mtd_agent_xxxxxxxxxxxxxxxxxxxx",
   "integrations": [
     {
       "type": "homewizard_p1",
