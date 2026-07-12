@@ -168,14 +168,10 @@ class StatusHandler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": "Core niet beschikbaar"})
                 return
             instance_key = (body.get("instance_key") or "").strip()
-            api_key = (body.get("api_key") or "").strip()
-            if not instance_key and not api_key:
+            if not instance_key:
                 self.send_json(400, {"error": "Niets om op te slaan"})
                 return
-            if instance_key:
-                core.config.set("instance_key", instance_key)
-            if api_key:
-                core.config.set("api_key", api_key)
+            core.config.set("instance_key", instance_key)
             # mtd-core en mtd-worker lezen config.json alleen bij opstarten in, dus
             # beide moeten herstarten om de nieuwe waarde(n) te gaan gebruiken. Kleine
             # vertraging zodat dit antwoord de browser nog haalt vóór de herstart.
@@ -375,11 +371,6 @@ class StatusHandler(BaseHTTPRequestHandler):
         <input type="password" id="settings-instance-key" value="{html_escape_lib.escape(core.config.get("instance_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
         <button type="button" onclick="togglePw('settings-instance-key', this)">Toon</button>
       </div>
-      <label>API key (ea_...)</label>
-      <div style="display:flex;gap:6px">
-        <input type="password" id="settings-api-key" value="{html_escape_lib.escape(core.config.get("api_key") or "") if core else ""}" placeholder="Laat leeg om ongewijzigd te laten" style="flex:1">
-        <button type="button" onclick="togglePw('settings-api-key', this)">Toon</button>
-      </div>
       <button class="primary" onclick="saveSettings()">Opslaan</button>
       <div class="status-msg" id="settings-status"></div>
     </div>
@@ -465,13 +456,12 @@ class StatusHandler(BaseHTTPRequestHandler):
 
   async function saveSettings() {{
     const instanceKey = document.getElementById('settings-instance-key').value.trim();
-    const apiKey = document.getElementById('settings-api-key').value.trim();
     const msg = document.getElementById('settings-status');
-    if (!instanceKey && !apiKey) {{ msg.className = 'status-msg err'; msg.textContent = 'Niets om op te slaan'; return; }}
+    if (!instanceKey) {{ msg.className = 'status-msg err'; msg.textContent = 'Niets om op te slaan'; return; }}
     const resp = await fetch('/api/settings', {{
       method: 'POST',
       headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{instance_key: instanceKey, api_key: apiKey}})
+      body: JSON.stringify({{instance_key: instanceKey}})
     }});
     const data = await resp.json();
     msg.className = 'status-msg ' + (resp.ok ? 'ok' : 'err');

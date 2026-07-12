@@ -25,11 +25,7 @@
 <body>
 <div class="card">
   <h1>MTD Agent Setup</h1>
-  <p class="sub">Voer de sleutels in die je via het mijnthuisdata portaal hebt aangemaakt.</p>
-
-  <label>API key</label>
-  <input type="text" id="api-key" placeholder="ea_xxxxxxxxxxxxxxxx" autocomplete="off" autocorrect="off" spellcheck="false">
-  <p class="hint">Begint altijd met ea_ — te vinden in jouw portaalaccount.</p>
+  <p class="sub">Voer de sleutel in die je via het mijnthuisdata portaal hebt aangemaakt.</p>
 
   <label>Instance key</label>
   <input type="text" id="instance-key" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" autocorrect="off" spellcheck="false">
@@ -65,14 +61,8 @@
     const status = document.getElementById('status');
     status.className = 'status';
 
-    const apiKey = document.getElementById('api-key').value.trim();
     const instanceKey = document.getElementById('instance-key').value.trim();
 
-    if (!apiKey.startsWith('ea_')) {
-      status.className = 'status error';
-      status.textContent = '✗ API key moet beginnen met ea_';
-      return;
-    }
     if (!instanceKey) {
       status.className = 'status error';
       status.textContent = '✗ Instance key is verplicht';
@@ -84,7 +74,6 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          api_key: apiKey,
           instance_key: instanceKey,
           ssid: document.getElementById('wifi-ssid').value,
           wifi_password: document.getElementById('wifi-password').value

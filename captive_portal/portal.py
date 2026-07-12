@@ -47,16 +47,12 @@ def index():
 @app.route("/api/setup", methods=["POST"])
 def setup():
     data = request.json
-    api_key = data.get("api_key", "").strip()
     instance_key = data.get("instance_key", "").strip()
 
-    if not api_key.startswith("ea_"):
-        return jsonify({"error": "API key moet beginnen met ea_"}), 400
     if not instance_key:
         return jsonify({"error": "Instance key is verplicht"}), 400
 
     save_config({
-        "api_key": api_key,
         "instance_key": instance_key
     })
 

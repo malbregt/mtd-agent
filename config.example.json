@@ -1,5 +1,5 @@
 {
-  "api_key": "jouw-mtd-api-key",
+  "instance_key": "dev_xxxxxxxxxxxxxxxxxxxx",
   "integrations": [
     {
       "type": "homewizard_p1",
