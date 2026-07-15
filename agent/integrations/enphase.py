@@ -76,6 +76,40 @@ class EnphaseIntegration(BaseIntegration):
         return data
 
     @staticmethod
+    def _fetch_inverter_energy(host: str, token: str) -> dict:
+        """Haal per-omvormer lifetime- en vandaag-energie op via /ivp/pdm/device_data.
+        Alleen op nieuwere Envoy-firmware beschikbaar; falen hier is geen harde fout."""
+        resp = requests.get(
+            f"{host}/ivp/pdm/device_data",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+            verify=False,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+        if not isinstance(raw, dict):
+            raise RuntimeError(f"Onverwacht antwoord van Envoy (geen device-data): {raw}")
+
+        result = {}
+        for key, device in raw.items():
+            if key in ("deviceCount", "deviceDataLimit") or not isinstance(device, dict):
+                continue
+            if device.get("devName") != "pcu" or not device.get("active", True):
+                continue
+            serial = device.get("sn")
+            channels = device.get("channels")
+            if not serial or not channels:
+                continue
+            channel = channels[0]
+            joules = (channel.get("lifetime") or {}).get("joulesProduced")
+            today_wh = (channel.get("wattHours") or {}).get("today")
+            result[serial] = {
+                "lifetime_kwh": round(joules / 3600 / 1000, 3) if joules is not None else None,
+                "today_kwh": round(today_wh / 1000, 3) if today_wh is not None else None,
+            }
+        return result
+
+    @staticmethod
     def _fetch_inverters(host: str, token: str) -> list:
         """Haal per-omvormer productiedata op. Deze endpoint is los van /api/v1/production
         en kan apart falen (bv. striktere token-vereisten op sommige Envoy-firmware),
@@ -128,10 +162,20 @@ class EnphaseIntegration(BaseIntegration):
 
             data = self._fetch_production(host, token)
 
+            energy_by_serial = {}
+            try:
+                energy_by_serial = self._fetch_inverter_energy(host, token)
+            except (requests.RequestException, RuntimeError) as e:
+                logger.warning(f"Enphase omvormer lifetime/vandaag-energie ophalen mislukt: {e}")
+
             try:
                 inverters = self._fetch_inverters(host, token)
                 data["inverters"] = [
-                    {"serial": inv.get("serialNumber"), "watts": inv.get("lastReportWatts")}
+                    {
+                        "serial": inv.get("serialNumber"),
+                        "watts": inv.get("lastReportWatts"),
+                        **energy_by_serial.get(inv.get("serialNumber"), {}),
+                    }
                     for inv in inverters
                     if inv.get("serialNumber") and inv.get("lastReportWatts") is not None
                 ]
