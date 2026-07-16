@@ -110,6 +110,25 @@ class EnphaseIntegration(BaseIntegration):
         return result
 
     @staticmethod
+    def _fetch_active_count(host: str, token: str) -> int | None:
+        """Haal het aantal actieve omvormers op via /production.json. Losse endpoint van
+        /api/v1/production en kan apart falen, dus fouten hier mogen de aggregaatdata niet
+        blokkeren."""
+        resp = requests.get(
+            f"{host}/production.json",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+            verify=False,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Onverwacht antwoord van Envoy (geen production.json-data): {data}")
+        production = data.get("production", [])
+        inv = next((p for p in production if p.get("type") == "inverters"), None)
+        return inv.get("activeCount") if inv else None
+
+    @staticmethod
     def _fetch_inverters(host: str, token: str) -> list:
         """Haal per-omvormer productiedata op. Deze endpoint is los van /api/v1/production
         en kan apart falen (bv. striktere token-vereisten op sommige Envoy-firmware),
@@ -161,6 +180,11 @@ class EnphaseIntegration(BaseIntegration):
                 logger.info(f"Enphase JWT ververst, geldig tot {datetime.fromtimestamp(token_exp, tz=timezone.utc).isoformat()}")
 
             data = self._fetch_production(host, token)
+
+            try:
+                data["inverters_active"] = self._fetch_active_count(host, token)
+            except (requests.RequestException, RuntimeError) as e:
+                logger.warning(f"Enphase actieve-omvormers-telling ophalen mislukt: {e}")
 
             energy_by_serial = {}
             try:
