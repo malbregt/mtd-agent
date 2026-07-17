@@ -95,14 +95,22 @@ class AgentAPIClient:
             logger.warning(f"Readings sync mislukt: {e}")
             return False
 
-    def send_event(self, integration_id: str, level: str, message: str):
-        """Rapporteer fout of event voor een integratie."""
+    def send_event(self, integration_id: str, status: str, error_message: str | None = None,
+                   customer_integration_id: str | None = None):
+        """Rapporteer gezondheidsstatus (healthy/error/unknown) van een integratie."""
         try:
-            requests.post(
+            resp = requests.post(
                 f"{API_URL}/agent/event",
-                json={"integration_id": integration_id, "level": level, "message": message},
+                json={
+                    "integration_id": integration_id,
+                    "status": status,
+                    "error_message": error_message,
+                    "customer_integration_id": customer_integration_id,
+                },
                 headers=self.headers,
                 timeout=5
             )
-        except requests.RequestException:
-            pass
+            if resp.status_code >= 400:
+                logger.warning(f"Event rapporteren mislukt ({integration_id}): HTTP {resp.status_code} {resp.text[:200]}")
+        except requests.RequestException as e:
+            logger.warning(f"Event rapporteren mislukt ({integration_id}): {e}")

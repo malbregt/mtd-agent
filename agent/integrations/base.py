@@ -39,12 +39,14 @@ class BaseIntegration(ABC):
             "time": datetime.now(timezone.utc).isoformat(),
             "message": message,
         })
-        self.api.send_event(self.integration_id, "error", message)
+        self.api.send_event(self.integration_id, status="error", error_message=message,
+                            customer_integration_id=self.customer_integration_id)
 
     def report_ok(self):
         if self._error_count > 0:
             self._error_count = 0
-            self.api.send_event(self.integration_id, "info", "Integratie hersteld")
+            self.api.send_event(self.integration_id, status="healthy",
+                                customer_integration_id=self.customer_integration_id)
 
     @staticmethod
     def normalize_host(host: str, default_scheme: str = "http") -> str:
