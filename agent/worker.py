@@ -199,7 +199,8 @@ class Worker:
         })
 
     def run(self):
-        logger.info(f"MTD Worker {VERSION} gestart")
+        import api as api_module
+        logger.info(f"MTD Worker {VERSION} gestart — API_URL={api_module.API_URL}")
         self._refresh_config()
 
         last_sync = 0

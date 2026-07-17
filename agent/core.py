@@ -160,7 +160,8 @@ class Core:
             logger.error(f"Kon test_result niet versturen: {e}")
 
     def run(self):
-        logger.info(f"MTD Core {VERSION} gestart")
+        import api as api_module
+        logger.info(f"MTD Core {VERSION} gestart — API_URL={api_module.API_URL}")
         start_status_server(self)
 
         # Registreer bij platform

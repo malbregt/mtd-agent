@@ -90,7 +90,13 @@ class AgentAPIClient:
                 headers=self.headers,
                 timeout=10
             )
-            return resp.status_code in (200, 202)
+            if resp.status_code in (200, 202):
+                return True
+            # Serverfout (bv. 401/422/500) gaf voorheen geen enkele logregel — daardoor
+            # was een mislukte sync niet te onderscheiden van "nog niet geprobeerd" in
+            # de agent-logs. Body ingekort want kan een volledige HTML-errorpagina zijn.
+            logger.warning(f"Readings sync mislukt: HTTP {resp.status_code} — {resp.text[:300]}")
+            return False
         except requests.RequestException as e:
             logger.warning(f"Readings sync mislukt: {e}")
             return False
