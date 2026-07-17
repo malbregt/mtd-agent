@@ -192,10 +192,20 @@ class P1SerialIntegration(BaseIntegration):
             if self._serial is None or not self._serial.is_open:
                 self._serial = self._open_serial()
 
+            # Wacht op minstens één telegram, en trek daarna meteen ook alles leeg wat
+            # er intussen al bij lag (bv. na een trage vorige cyclus) — anders raakt de
+            # kleine seriële OS-buffer vol en gaat er stilzwijgend data verloren i.p.v.
+            # dat we gewoon alles verwerken wat de meter al gestuurd heeft.
             raw = _read_telegram(self._serial)
             data = parse_telegram(raw)
             timestamp = datetime.now(timezone.utc).isoformat()
             self.store_reading(timestamp, data)
+
+            while self._serial.in_waiting > 0:
+                raw = _read_telegram(self._serial)
+                data = parse_telegram(raw)
+                self.store_reading(datetime.now(timezone.utc).isoformat(), data)
+
             self.report_ok()
             logger.debug(f"P1 serieel: {data.get('active_power_w')}W")
         except Exception as e:

@@ -127,6 +127,8 @@ class Core:
         loop = asyncio.get_event_loop()
         start = time.time()
 
+        logger.info(f"Integratietest ontvangen: {integration_id} (config={config})")
+
         try:
             cls = self.plugins.get_integration_class(integration_id)
             if not cls:
@@ -140,6 +142,7 @@ class Core:
                 "device": device or {},
                 "error": None,
             }
+            logger.info(f"Integratietest geslaagd: {integration_id} ({result['response_ms']}ms)")
         except Exception as e:
             logger.warning(f"Integratietest mislukt ({integration_id}): {e}")
             result = {
