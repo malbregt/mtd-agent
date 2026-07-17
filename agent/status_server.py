@@ -220,16 +220,18 @@ class StatusHandler(BaseHTTPRequestHandler):
         rows = ""
         for idx, i in enumerate(integrations):
             try:
-                has_errors = isinstance(i["errors"], int) and i["errors"] > 0
-                kleur = "#f8d7da" if has_errors else "#d4edda"
+                enabled = i.get("enabled", True)
+                has_errors = enabled and isinstance(i["errors"], int) and i["errors"] > 0
+                kleur = "#eee" if not enabled else ("#f8d7da" if has_errors else "#d4edda")
                 klik = f'onclick="toggleErrors({idx})" style="cursor:pointer"' if has_errors else ""
                 last_poll = i["last_poll"]
                 last_poll_label = datetime.fromtimestamp(last_poll).strftime("%H:%M:%S") if last_poll else "nog niet"
+                status_label = "&#10074;&#10074; gepauzeerd" if not enabled else ('✓' if not has_errors else f"✗ {i['errors']} fout(en) &#9662;")
                 rows += f"""<tr style="background:{kleur}" {klik}>
                     <td>{i['name']}</td><td>{i['type']}</td>
                     <td>{i['poll_interval']}s</td><td>{last_poll_label}</td>
                     <td>{i['pending']}</td>
-                    <td>{'✓' if not has_errors else f"✗ {i['errors']} fout(en) &#9662;"}</td>
+                    <td>{status_label}</td>
                 </tr>"""
                 if has_errors:
                     error_items = "".join(

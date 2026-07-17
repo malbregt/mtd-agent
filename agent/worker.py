@@ -118,8 +118,14 @@ class Worker:
                 plugin_name = cfg["type"]
                 cls = self.plugins.get_integration_class(plugin_name)
                 if cls:
-                    self.integrations[key] = cls(iid, cfg, self.sync, self.api)
-                    logger.info(f"Integratie {'bijgewerkt' if existing else 'geladen'}: {cfg.get('name', plugin_name)}")
+                    instance = cls(iid, cfg, self.sync, self.api)
+                    # Gepauzeerde instanties (enabled=false) blijven geladen zodat ze op de
+                    # lokale statuspagina zichtbaar blijven als "gepauzeerd" i.p.v. te
+                    # verdwijnen — alleen het daadwerkelijk pollen wordt overgeslagen (zie run()).
+                    instance.enabled = cfg.get("enabled", True)
+                    self.integrations[key] = instance
+                    logger.info(f"Integratie {'bijgewerkt' if existing else 'geladen'}: {cfg.get('name', plugin_name)}"
+                                + ("" if instance.enabled else " (gepauzeerd)"))
                 else:
                     logger.error(f"Plugin niet gevonden: {plugin_name}")
             except Exception as e:
@@ -180,6 +186,7 @@ class Worker:
                     "errors": integration._error_count,
                     "recent_errors": list(integration._recent_errors),
                     "pending": pending_counts.get(integration.customer_integration_id, 0),
+                    "enabled": getattr(integration, "enabled", True),
                 })
             except Exception as e:
                 logger.error(f"Fout bij opbouwen status voor {iid}: {e}")
@@ -213,8 +220,11 @@ class Worker:
                     logger.error(f"Fout bij config ophalen: {e}")
                 last_config_poll = now
 
-            # Poll integraties op basis van eigen interval
+            # Poll integraties op basis van eigen interval — gepauzeerde integraties
+            # (enabled=false) blijven geladen voor de statuspagina maar worden overgeslagen.
             for iid, integration in list(self.integrations.items()):
+                if not getattr(integration, "enabled", True):
+                    continue
                 last = self._last_poll.get(iid, 0)
                 if now - last >= integration.poll_interval:
                     try:
