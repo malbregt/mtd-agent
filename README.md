@@ -47,6 +47,7 @@ mtd-agent/
 │       ├── base.py               # BaseIntegration
 │       ├── homewizard_p1.py      # HomeWizard P1 plugin
 │       ├── homewizard_water.py   # HomeWizard Watermeter plugin
+│       ├── p1_serial.py          # P1-poort via USB-kabel (zonder HomeWizard)
 │       └── enphase.py            # Enphase Envoy plugin
 ├── captive_portal/
 │   ├── portal.py                 # Flask onboarding portal
