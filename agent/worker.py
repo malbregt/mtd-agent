@@ -104,6 +104,7 @@ class Worker:
         for key in list(self.integrations.keys()):
             if key not in new_keys:
                 logger.info(f"Integratie gestopt: {key}")
+                self.integrations[key].close()
                 del self.integrations[key]
 
         # Laad nieuwe of gewijzigde integraties
@@ -118,6 +119,13 @@ class Worker:
                 plugin_name = cfg["type"]
                 cls = self.plugins.get_integration_class(plugin_name)
                 if cls:
+                    if existing is not None:
+                        # Sluit open verbindingen (bv. seriële poort) vóórdat de
+                        # nieuwe instance dezelfde resource claimt — anders houdt
+                        # de oude, niet meer gepolde instance de poort vast tot de
+                        # garbage collector hem opruimt, en botst de nieuwe instance
+                        # daar bij zijn eerste poll() tegenaan.
+                        existing.close()
                     instance = cls(iid, cfg, self.sync, self.api)
                     # Gepauzeerde instanties (enabled=false) blijven geladen zodat ze op de
                     # lokale statuspagina zichtbaar blijven als "gepauzeerd" i.p.v. te
@@ -166,6 +174,7 @@ class Worker:
                         (k for k, v in self.integrations.items() if v.customer_integration_id == iid), None
                     )
                     if key is not None:
+                        self.integrations[key].close()
                         del self.integrations[key]
                         logger.info(f"Integratie herstart: {iid}")
                     self._refresh_config()

@@ -17,6 +17,7 @@ Config:
   port      seriële poort, bv. "/dev/ttyUSB0" (default) of "/dev/ttyAMA0"
   baudrate  115200 voor DSMR 4/5 (default), 9600 voor oudere DSMR 2/3-meters
 """
+import fcntl
 import logging
 import re
 import sys, os
@@ -83,6 +84,22 @@ def parse_telegram(raw: bytes) -> dict:
     return obis_data
 
 
+def _lock_port(ser, port: str):
+    """Legt een exclusieve, non-blocking flock op de seriële poort-fd, zodat de
+    worker-pollloop en een losse integratietest (aparte processen: mtd-worker
+    resp. mtd-core) elkaar niet in de weg zitten. Zonder deze lock lezen beide
+    kanten soms bytes van elkaars telegram weg, wat zich uit als CRC-fouten of
+    als een 'geen data' time-out — zie beide foutmeldingen in de UI. De lock
+    wordt automatisch vrijgegeven zodra de poort gesloten wordt."""
+    try:
+        fcntl.flock(ser.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        ser.close()
+        raise RuntimeError(
+            f"Poort {port} is al in gebruik door een lopende meting, probeer over enkele seconden opnieuw"
+        )
+
+
 def _read_telegram(ser) -> bytes:
     """Lees van de seriële poort tot een compleet telegram ('/' ... '!CRC') binnen is."""
     buf = bytearray()
@@ -118,7 +135,7 @@ class P1SerialIntegration(BaseIntegration):
         import serial  # pyserial — alleen nodig als deze integratie actief is
 
         port, baudrate = self._get_serial_config()
-        return serial.Serial(
+        ser = serial.Serial(
             port=port,
             baudrate=baudrate,
             bytesize=serial.EIGHTBITS if baudrate == 115200 else serial.SEVENBITS,
@@ -128,6 +145,8 @@ class P1SerialIntegration(BaseIntegration):
             xonxoff=False,
             rtscts=False,
         )
+        _lock_port(ser, port)
+        return ser
 
     @staticmethod
     def test_connection(config: dict) -> dict:
@@ -148,6 +167,8 @@ class P1SerialIntegration(BaseIntegration):
         except serial.SerialException as e:
             raise RuntimeError(f"Kan poort {port} niet openen: {e}")
 
+        _lock_port(ser, port)
+
         try:
             raw = _read_telegram(ser)
             data = parse_telegram(raw)
@@ -161,6 +182,14 @@ class P1SerialIntegration(BaseIntegration):
         return {"port": port, "baudrate": baudrate, **{
             k: (", ".join(v) if isinstance(v, list) else v) for k, v in data.items()
         }}
+
+    def close(self):
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            except Exception:
+                pass
+            self._serial = None
 
     def poll(self):
         try:

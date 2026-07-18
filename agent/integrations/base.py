@@ -22,6 +22,14 @@ class BaseIntegration(ABC):
         """Lees data en sla op via store_reading()"""
         pass
 
+    def close(self):
+        """Sluit eventuele open verbindingen (seriële poort, sockets, ...). Wordt
+        door de worker aangeroepen vlak voordat een instance vervangen (bij een
+        config-wijziging) of verwijderd (bij stoppen) wordt, zodat de oude
+        instance geen resources vasthoudt terwijl hij niet meer gepolld wordt.
+        Default no-op; subclasses met eigen open verbindingen overschrijven dit."""
+        pass
+
     def store_reading(self, timestamp: str, data):
         """Sla een reading op, met validatie dat het apparaat echt data teruggaf.
 
