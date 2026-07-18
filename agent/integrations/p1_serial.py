@@ -85,6 +85,21 @@ def parse_telegram(raw: bytes) -> dict:
     return obis_data
 
 
+def _power_port(ser):
+    """Zet RTS (en voor de zekerheid DTR) expliciet hoog na het openen.
+
+    Een rechtstreekse P1-kabel in de meter werkt ook zonder dit, maar een actieve
+    HomeWizard P1-splitter haalt zijn eigen voeding uit de RTS-lijn van de USB-kabel
+    (hij versterkt/splitst het signaal en heeft daar stroom voor nodig) — zonder
+    expliciet hoog te zetten laat pyserial dit standaard aan de driver over, wat
+    kennelijk niet genoeg is om zo'n splitter van stroom te voorzien."""
+    try:
+        ser.rts = True
+        ser.dtr = True
+    except Exception as e:
+        logger.debug(f"Kon RTS/DTR niet zetten (mogelijk niet ondersteund door deze poort): {e}")
+
+
 def _lock_port(ser, port: str):
     """Legt een exclusieve, non-blocking flock op de seriële poort-fd, zodat de
     worker-pollloop en een losse integratietest (aparte processen: mtd-worker
@@ -156,6 +171,7 @@ class P1SerialIntegration(BaseIntegration):
             xonxoff=False,
             rtscts=False,
         )
+        _power_port(ser)
         _lock_port(ser, port)
         return ser
 
@@ -178,6 +194,7 @@ class P1SerialIntegration(BaseIntegration):
         except serial.SerialException as e:
             raise RuntimeError(f"Kan poort {port} niet openen: {e}")
 
+        _power_port(ser)
         _lock_port(ser, port)
 
         try:
