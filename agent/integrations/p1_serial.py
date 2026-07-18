@@ -21,6 +21,7 @@ import fcntl
 import logging
 import re
 import sys, os
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -101,10 +102,20 @@ def _lock_port(ser, port: str):
 
 
 def _read_telegram(ser) -> bytes:
-    """Lees van de seriële poort tot een compleet telegram ('/' ... '!CRC') binnen is."""
+    """Lees van de seriële poort tot een compleet telegram ('/' ... '!CRC') binnen is.
+
+    ser.readline() timet alleen individueel uit (geen bytes binnen TELEGRAM_TIMEOUT):
+    bij een ruisende/instabiele verbinding die voortdurend halve of foutieve regels
+    aflevert (nooit een langere stilte dan de timeout) zou deze lus zonder een eigen
+    totale deadline voor altijd door kunnen lezen zonder ooit een compleet telegram
+    te vinden — en daarmee de hele (single-threaded) worker-lus blokkeren."""
+    deadline = time.monotonic() + TELEGRAM_TIMEOUT
     buf = bytearray()
     collecting = False
     while True:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Geen compleet telegram ontvangen van P1-poort binnen de time-out")
+
         line = ser.readline()
         if not line:
             raise TimeoutError("Geen data ontvangen van P1-poort (time-out)")
