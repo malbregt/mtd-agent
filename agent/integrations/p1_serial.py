@@ -86,18 +86,17 @@ def parse_telegram(raw: bytes) -> dict:
 
 
 def _power_port(ser):
-    """Zet RTS (en voor de zekerheid DTR) expliciet hoog na het openen.
+    """Zet RTS expliciet hoog na het openen — sommige actieve P1-splitters
+    schakelen hun uitgang pas in als RTS op die specifieke poort hoog staat.
 
-    Een rechtstreekse P1-kabel in de meter werkt ook zonder dit, maar een actieve
-    HomeWizard P1-splitter haalt zijn eigen voeding uit de RTS-lijn van de USB-kabel
-    (hij versterkt/splitst het signaal en heeft daar stroom voor nodig) — zonder
-    expliciet hoog te zetten laat pyserial dit standaard aan de driver over, wat
-    kennelijk niet genoeg is om zo'n splitter van stroom te voorzien."""
+    Bewust geen DTR: bij FTDI-achtige adapters kan het togglen van DTR een
+    reset/herverbinding van de chip triggeren (gezien in dmesg als een USB
+    disconnect/reconnect), wat de verbinding juist verstoort i.p.v. helpt."""
     try:
         ser.rts = True
-        ser.dtr = True
+        logger.warning(f"RTS gezet op {ser.port}: rts={ser.rts}")
     except Exception as e:
-        logger.debug(f"Kon RTS/DTR niet zetten (mogelijk niet ondersteund door deze poort): {e}")
+        logger.warning(f"Kon RTS niet zetten op {ser.port}: {e}")
 
 
 def _lock_port(ser, port: str):
