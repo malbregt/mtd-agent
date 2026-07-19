@@ -25,11 +25,19 @@ def _lan_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 2.0) 
         return False
 
 
+# Vendored plugins die met de agent worden meegeleverd (in de repo zelf,
+# onder mtd-agent/plugins/). PLUGIN_DIR (default /data/plugins) is bedoeld
+# voor plugins die later via de nog-niet-gebouwde GitHub-downloadflow
+# binnenkomen; zolang die niet bestaat, vallen we terug op de vendored versie.
+VENDORED_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins"
+
+
 def _load_plugin_class(plugin_id: str) -> type[DevicePlugin]:
     """Laadt plugins/{plugin_id}/plugin.py dynamisch via importlib en zoekt de
     eerste DevicePlugin-subklasse erin — geen registratie/decorator nodig."""
-    plugin_dir = Path(config.PLUGIN_DIR) / plugin_id
-    module_path = plugin_dir / "plugin.py"
+    module_path = Path(config.PLUGIN_DIR) / plugin_id / "plugin.py"
+    if not module_path.exists():
+        module_path = VENDORED_PLUGIN_DIR / plugin_id / "plugin.py"
     spec = importlib.util.spec_from_file_location(f"plugins.{plugin_id}", module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

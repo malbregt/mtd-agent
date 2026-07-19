@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -68,6 +69,37 @@ class SyncClient:
         elif channel == "command" and self.on_command:
             result = await self.on_command(msg)
             await self._send({"channel": "ack", "command_id": msg.get("id"), "status": result or "received"})
+        elif msg.get("type") == "test_integration":
+            # Legacy commandotype (geen "channel"-veld, zelfde als v1.0.26):
+            # platform vraagt om een eenmalige verbindingstest met een nog niet
+            # opgeslagen config, gebruikt door de "Test verbinding"-knop in de UI.
+            await self._handle_test_integration(msg)
+
+    async def _handle_test_integration(self, msg: dict) -> None:
+        from core.agent import _load_plugin_class  # lazy: voorkomt circulaire import met core.agent
+
+        request_id = msg.get("request_id")
+        integration_id = msg.get("integration_id", "")
+        test_config = msg.get("config") or {}
+        start = time.monotonic()
+        try:
+            plugin_cls = _load_plugin_class(integration_id)
+            test_fn = plugin_cls.test_connection
+            if inspect.iscoroutinefunction(test_fn):
+                device_info = await test_fn(test_config)
+            else:
+                loop = asyncio.get_running_loop()
+                device_info = await loop.run_in_executor(None, test_fn, test_config)
+            await self._send({
+                "type": "test_result", "request_id": request_id, "success": True,
+                "response_ms": int((time.monotonic() - start) * 1000), "device": device_info,
+            })
+        except Exception as e:
+            log.warning("test_integration voor %s mislukt: %s", integration_id, e)
+            await self._send({
+                "type": "test_result", "request_id": request_id, "success": False,
+                "response_ms": int((time.monotonic() - start) * 1000), "error": str(e),
+            })
 
     async def _send(self, payload: dict) -> bool:
         if not self._ws:
