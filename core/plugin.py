@@ -28,7 +28,7 @@ class Command:
 @dataclass
 class PluginHealth:
     plugin_id: str
-    status: Literal["ok", "degraded", "error", "timeout"]
+    status: Literal["ok", "degraded", "error", "timeout", "paused"]
     last_reading_at: datetime | None
     last_error: str | None
     restart_count: int

@@ -31,6 +31,15 @@ class HealthTracker:
         last_reading_at = prev.last_reading_at if prev else None
         self._set(plugin_id, "degraded", last_reading_at=last_reading_at, last_error=error, restart_count=restart_count)
 
+    def mark_paused(self, plugin_id: str) -> None:
+        """Plugin is bewust uitgeschakeld (gepauzeerd via het platform) — blijft
+        zichtbaar op de lokale statuspagina (i.t.t. clear(), voor een instantie
+        die volledig verwijderd is), maar duidelijk als niet-actief gemarkeerd."""
+        prev = self._health.get(plugin_id)
+        last_reading_at = prev.last_reading_at if prev else None
+        self._set(plugin_id, "paused", last_reading_at=last_reading_at, last_error=None,
+                   restart_count=prev.restart_count if prev else 0)
+
     def _set(self, plugin_id: str, status: str, last_reading_at, last_error, restart_count: int) -> None:
         updated_at = datetime.now(timezone.utc)
         self._health[plugin_id] = PluginHealth(

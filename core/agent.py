@@ -125,10 +125,11 @@ class Agent:
                 log.info("plugin %s %s via config-push", plugin_id, "herstart" if was_running else "nieuw gestart")
                 await self._start_plugin_from_row({"plugin_id": plugin_id, "config": json.dumps(plugin_config)})
             else:
-                # Health-status opruimen, anders blijft een oud "ok" (groen)
-                # voor altijd op de lokale statuspagina staan terwijl de
-                # plugin niet meer draait.
-                self.health.clear(plugin_id)
+                # Markeer als gepauzeerd i.p.v. de health-status helemaal te
+                # wissen — blijft zichtbaar op de lokale statuspagina (oranje),
+                # zodat duidelijk is dat de plugin bewust stilligt en niet
+                # per ongeluk verdwenen is.
+                self.health.mark_paused(plugin_id)
                 if was_running:
                     log.info("plugin %s gestopt via config-push (uitgeschakeld)", plugin_id)
 
