@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTD Agent</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #0f1115; color: #e6e8eb; font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; }
+  h1 { font-size: 1.2rem; margin: 0 0 1rem; }
+  .card { background: #1a1d24; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid #2a2e37; }
+  .row:last-child { border-bottom: none; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 0.5rem; }
+  .ok { background: #3ecf6e; } .degraded { background: #e6a23c; } .error, .timeout { background: #e5484d; }
+  .meta { color: #9aa0aa; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+  <h1>⚡ MTD Agent</h1>
+  <div class="card" id="device"></div>
+  <div class="card" id="plugins"></div>
+
+  <script>
+    async function refresh() {
+      try {
+        const [health, device] = await Promise.all([
+          fetch('/api/health').then(r => r.json()),
+          fetch('/api/device').then(r => r.json()),
+        ]);
+
+        document.getElementById('device').innerHTML = `
+          <div class="row"><span>Device</span><span>${device.device_id ?? '-'}</span></div>
+          <div class="row"><span>Versie</span><span>${device.agent_version}</span></div>
+          <div class="row"><span>Uptime</span><span>${Math.floor(device.uptime_s / 3600)}u ${Math.floor((device.uptime_s % 3600) / 60)}m</span></div>
+          <div class="row"><span>Netwerk</span><span>${device.network_mode}</span></div>
+        `;
+
+        const plugins = health.plugins || [];
+        document.getElementById('plugins').innerHTML = plugins.length
+          ? plugins.map(p => `
+              <div class="row">
+                <span><span class="dot ${p.status}"></span>${p.id}</span>
+                <span class="meta">${p.last_reading_at ?? 'geen data'}</span>
+              </div>
+            `).join('')
+          : '<div class="meta">Geen plugins actief</div>';
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    refresh();
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>

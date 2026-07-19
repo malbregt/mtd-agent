@@ -1,0 +1,122 @@
+import asyncio
+import json
+import logging
+import time
+
+import aiohttp
+
+import config
+from core import database
+from core.bus import Bus
+from core.health import HealthTracker
+from core.plugin import Reading
+
+log = logging.getLogger("sync")
+
+AGENT_VERSION = "2.0.0"
+
+
+class SyncClient:
+    """Persistente WebSocket-verbinding met het platform. Vier channels:
+    config (platform->agent), data (agent->platform), health (agent->platform),
+    command (platform->agent) + ack (agent->platform). Platform offline bij
+    opstart/tijdens gebruik is geen probleem — readings/health blijven lokaal
+    in SQLite staan tot de volgende geslaagde flush."""
+
+    def __init__(self, bus: Bus, health: HealthTracker, device_id: str, on_config=None, on_command=None):
+        self.bus = bus
+        self.health = health
+        self.device_id = device_id
+        self.on_config = on_config
+        self.on_command = on_command
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+        self._started_at = time.monotonic()
+        self._reading_queue: asyncio.Queue[Reading] = bus.subscribe("reading")
+
+    async def run(self) -> None:
+        await asyncio.gather(
+            self._connection_loop(),
+            self._readings_flush_loop(),
+            self._health_flush_loop(),
+            self._reading_intake_loop(),
+        )
+
+    async def _connection_loop(self) -> None:
+        while True:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    headers = {"X-Api-Key": config.AGENT_KEY}
+                    async with session.ws_connect(
+                        f"{config.PLATFORM_WS_URL}?token={config.AGENT_KEY}", headers=headers
+                    ) as ws:
+                        self._ws = ws
+                        log.info("verbonden met platform")
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                await self._handle_message(json.loads(msg.data))
+                            elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
+                                break
+            except Exception as e:
+                log.warning("WS-verbinding mislukt/verbroken: %s — herverbinden over %ss", e, config.WS_RECONNECT_DELAY_S)
+            self._ws = None
+            await asyncio.sleep(config.WS_RECONNECT_DELAY_S)
+
+    async def _handle_message(self, msg: dict) -> None:
+        channel = msg.get("channel")
+        if channel == "config" and self.on_config:
+            await self.on_config(msg)
+        elif channel == "command" and self.on_command:
+            result = await self.on_command(msg)
+            await self._send({"channel": "ack", "command_id": msg.get("id"), "status": result or "received"})
+
+    async def _send(self, payload: dict) -> bool:
+        if not self._ws:
+            return False
+        try:
+            await self._ws.send_json(payload)
+            return True
+        except Exception as e:
+            log.warning("versturen mislukt: %s", e)
+            return False
+
+    async def _reading_intake_loop(self) -> None:
+        """Slaat readings uit de bus meteen lokaal op in SQLite (durable), de
+        flush-loop stuurt ze vervolgens periodiek naar het platform."""
+        while True:
+            event = await self._reading_queue.get()
+            r: Reading = event.payload
+            database.store_reading(r.device_id, r.metric, r.value, r.unit, r.direction, r.source, r.timestamp.isoformat())
+
+    async def _readings_flush_loop(self) -> None:
+        while True:
+            await asyncio.sleep(config.READINGS_FLUSH_INTERVAL_S)
+            rows = database.unsynced_readings()
+            if not rows:
+                continue
+            # Groepeer per (source, timestamp): metingen die in dezelfde collect()-
+            # cyclus zijn opgehaald horen bij elkaar (bv. alle OBIS-velden van één
+            # P1-telegram) en moeten als één item bij de platform-normalisatie
+            # aankomen, niet los per metric.
+            grouped: dict[tuple[str, str], dict] = {}
+            ids_by_group: dict[tuple[str, str], list[int]] = {}
+            for r in rows:
+                key = (r["source"], r["timestamp"])
+                grouped.setdefault(key, {})[r["metric"]] = {"value": r["value"], "unit": r["unit"]}
+                ids_by_group.setdefault(key, []).append(r["id"])
+
+            readings = [
+                {"integration_id": source, "timestamp": ts, "data": data}
+                for (source, ts), data in grouped.items()
+            ]
+            if await self._send({"channel": "data", "readings": readings}):
+                database.mark_synced([i for ids in ids_by_group.values() for i in ids])
+
+    async def _health_flush_loop(self) -> None:
+        while True:
+            await self._send({
+                "channel": "health",
+                "agent_version": AGENT_VERSION,
+                "uptime_s": int(time.monotonic() - self._started_at),
+                "plugins": self.health.snapshot(),
+            })
+            await asyncio.sleep(config.HEALTH_FLUSH_INTERVAL_S)

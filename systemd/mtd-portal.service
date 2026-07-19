@@ -1,15 +1,14 @@
 [Unit]
-Description=MTD Captive Portal
+Description=MTD Captive Portal (onboarding)
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/mtd-agent/captive_portal
-ExecStart=/opt/mtd-agent/venv/bin/python portal.py
+WorkingDirectory=/opt/mtd-agent
+ExecStart=/opt/mtd-agent/venv/bin/python -m onboarding.portal
 Restart=on-failure
-Environment=MTD_CONFIG=/opt/mtd-agent/config.json
-# Optioneel per-device bestand om MTD_API_URL te overrulen (zie mtd-core.service).
+Environment=DB_PATH=/data/agent.db
 EnvironmentFile=-/etc/mtd-agent/env
 
 [Install]
