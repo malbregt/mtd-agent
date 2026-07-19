@@ -15,3 +15,7 @@ HEALTH_FLUSH_INTERVAL_S = 60
 WS_RECONNECT_DELAY_S = 10
 RESTART_BACKOFF_S = (30, 60, 120)
 MAX_RESTART_ATTEMPTS = 5
+# Vangnet naast de event-driven config_update-pushes: als zo'n signaal om wat
+# voor reden dan ook nooit aankomt (gemiste race, kortstondige WS-hapering),
+# haalt de agent periodiek gewoon opnieuw de volledige config op.
+CONFIG_REFRESH_INTERVAL_S = 900

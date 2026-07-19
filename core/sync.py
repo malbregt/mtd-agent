@@ -40,6 +40,7 @@ class SyncClient:
             self._readings_flush_loop(),
             self._health_flush_loop(),
             self._reading_intake_loop(),
+            self._config_refresh_loop(),
         )
 
     async def _connection_loop(self) -> None:
@@ -107,6 +108,15 @@ class SyncClient:
         log.info("config ontvangen (via ophalen): %d plugin(s) — %s", len(plugins),
                  ", ".join(p.get("plugin_id") or p.get("integration_id", "?") for p in plugins) or "geen")
         await self.on_config(payload)
+
+    async def _config_refresh_loop(self) -> None:
+        """Vangnet naast de event-driven config_update-pushes: haalt periodiek
+        gewoon opnieuw de volledige config op, voor het geval een push-signaal
+        om wat voor reden dan ook nooit aankomt."""
+        while True:
+            await asyncio.sleep(config.CONFIG_REFRESH_INTERVAL_S)
+            log.info("periodieke config-refresh")
+            await self._refetch_config()
 
     async def _handle_test_integration(self, msg: dict) -> None:
         from core.agent import _load_plugin_class  # lazy: voorkomt circulaire import met core.agent
