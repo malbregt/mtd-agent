@@ -117,6 +117,7 @@ class Agent:
                 status="installed" if enabled else "paused",
                 label=plugin.get("name"),
                 slug=plugin.get("slug"),
+                integration_name=plugin.get("integration_name"),
             )
 
             # Altijd eerst stoppen (no-op als hij nog niet draaide) zodat een

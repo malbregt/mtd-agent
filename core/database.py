@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS agent_plugins (
     status            TEXT,
     label             TEXT,
     slug              TEXT,
+    integration_name  TEXT,
     updated_at        TEXT
 );
 
@@ -59,7 +60,7 @@ def init_db(db_path: str | None = None) -> None:
         # Best-effort migratie voor bestaande databases van vóór label/slug:
         # CREATE TABLE IF NOT EXISTS voegt geen kolommen toe aan een tabel die
         # al bestaat, dus dat moet hier expliciet via ALTER TABLE.
-        for column in ("label", "slug"):
+        for column in ("label", "slug", "integration_name"):
             try:
                 conn.execute(f"ALTER TABLE agent_plugins ADD COLUMN {column} TEXT")
             except sqlite3.OperationalError:
@@ -105,7 +106,7 @@ def load_installed_plugins() -> list[sqlite3.Row]:
 def upsert_plugin(plugin_id: str, target_version: str | None = None,
                    installed_version: str | None = None, config_json: str | None = None,
                    status: str | None = None, label: str | None = None,
-                   slug: str | None = None) -> None:
+                   slug: str | None = None, integration_name: str | None = None) -> None:
     with _connect() as conn:
         existing = conn.execute(
             "SELECT * FROM agent_plugins WHERE plugin_id = ?", (plugin_id,)
@@ -119,27 +120,30 @@ def upsert_plugin(plugin_id: str, target_version: str | None = None,
                     status = COALESCE(?, status),
                     label = COALESCE(?, label),
                     slug = COALESCE(?, slug),
+                    integration_name = COALESCE(?, integration_name),
                     updated_at = datetime('now')
                    WHERE plugin_id = ?""",
-                (target_version, installed_version, config_json, status, label, slug, plugin_id),
+                (target_version, installed_version, config_json, status, label, slug, integration_name, plugin_id),
             )
         else:
             conn.execute(
                 """INSERT INTO agent_plugins
-                   (plugin_id, target_version, installed_version, config, status, label, slug, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-                (plugin_id, target_version, installed_version, config_json, status or "pending", label, slug),
+                   (plugin_id, target_version, installed_version, config, status, label, slug, integration_name, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                (plugin_id, target_version, installed_version, config_json, status or "pending", label, slug, integration_name),
             )
         conn.commit()
 
 
 def plugin_metadata() -> dict[str, dict]:
-    """plugin_id → {label, slug} — gebruikt om de lokale statuspagina de
-    gebruiksvriendelijke naam/instantie-ID te laten tonen i.p.v. alleen de
-    technische plugin_id (bv. 'homewizard_p1')."""
+    """plugin_id → {label, slug, integration_name} — gebruikt om de lokale
+    statuspagina de gebruiksvriendelijke integratienaam ("HomeWizard
+    Watermeter") als primaire naam te tonen, met de instantie-naam/-ID erachter,
+    i.p.v. alleen de technische plugin_id (bv. 'homewizard_p1')."""
     with _connect() as conn:
-        rows = conn.execute("SELECT plugin_id, label, slug FROM agent_plugins").fetchall()
-        return {r["plugin_id"]: {"label": r["label"], "slug": r["slug"]} for r in rows}
+        rows = conn.execute("SELECT plugin_id, label, slug, integration_name FROM agent_plugins").fetchall()
+        return {r["plugin_id"]: {"label": r["label"], "slug": r["slug"],
+                                  "integration_name": r["integration_name"]} for r in rows}
 
 
 def store_reading(device_id: str, metric: str, value: float, unit: str,

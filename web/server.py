@@ -48,7 +48,12 @@ def build_app(agent) -> FastAPI:
     def api_health():
         meta = database.plugin_metadata()
         plugins = [
-            {**p, "label": meta.get(p["id"], {}).get("label"), "slug": meta.get(p["id"], {}).get("slug")}
+            {
+                **p,
+                "label": meta.get(p["id"], {}).get("label"),
+                "slug": meta.get(p["id"], {}).get("slug"),
+                "integration_name": meta.get(p["id"], {}).get("integration_name"),
+            }
             for p in agent.health.snapshot()
         ]
         return {

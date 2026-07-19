@@ -41,13 +41,18 @@
         const plugins = health.plugins || [];
         document.getElementById('plugins').innerHTML = plugins.length
           ? plugins.map(p => {
-              const displayName = p.label || p.id;
-              const slugPart = p.slug ? `<span class="plugin-slug">(${p.slug})</span>` : '';
+              // Primair: gebruiksvriendelijke integratienaam ("HomeWizard Watermeter"),
+              // met de instantienaam/-ID erachter (bv. "— water-edge2"), zodat je bij
+              // meerdere instanties van dezelfde integratie ze uit elkaar houdt.
+              const primary = p.integration_name || p.id;
+              const instanceLabel = p.label || p.slug || '';
+              const slugSuffix = (p.slug && p.slug !== instanceLabel) ? ` (${p.slug})` : '';
+              const instancePart = instanceLabel ? `<span class="plugin-slug">— ${instanceLabel}${slugSuffix}</span>` : '';
               const statusNote = p.status === 'paused' ? ' <span class="meta">(gepauzeerd)</span>'
                 : p.status === 'degraded' ? ' <span class="meta">(storing)</span>' : '';
               return `
                 <div class="row">
-                  <span><span class="dot ${p.status}"></span><span class="plugin-name">${displayName}</span>${slugPart}${statusNote}</span>
+                  <span><span class="dot ${p.status}"></span><span class="plugin-name">${primary}</span> ${instancePart}${statusNote}</span>
                   <span class="meta">${p.status === 'paused' ? '' : (p.last_reading_at ?? 'geen data')}</span>
                 </div>
               `;
