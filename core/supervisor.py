@@ -24,10 +24,14 @@ class Supervisor:
 
     def start_plugin(self, plugin: DevicePlugin, collect_interval_s: int) -> None:
         plugin_id = plugin.plugin_id
+        self._stopped.discard(plugin_id)  # anders stopt een herstart meteen weer (zie _run_plugin)
         self._restart_counts.setdefault(plugin_id, 0)
         self._tasks[plugin_id] = asyncio.create_task(
             self._run_plugin(plugin, collect_interval_s), name=f"plugin:{plugin_id}"
         )
+
+    def is_running(self, plugin_id: str) -> bool:
+        return plugin_id in self._tasks
 
     async def stop_plugin(self, plugin_id: str) -> None:
         self._stopped.add(plugin_id)

@@ -90,18 +90,33 @@ class Agent:
 
     async def _on_config_push(self, msg: dict) -> None:
         """Platform pusht welke plugins de agent moet hebben (config-channel,
-        type=plugin_sync). Vergelijkt met wat lokaal geïnstalleerd is en start/
-        herstart wat nodig is. Plugin-download zelf (van GitHub) is nog TODO —
-        voor nu wordt alleen config van al-aanwezige plugins bijgewerkt."""
+        type=plugin_sync). Start/herstart de betreffende plugin meteen bij de
+        supervisor i.p.v. alleen de config in SQLite bij te werken — anders
+        heeft een nieuw aangemaakte sub-integratie pas effect na een handmatige
+        herstart van de agent. Plugin-download zelf (van GitHub) is nog TODO;
+        voor nu wordt aangenomen dat de vendored plugin-code al aanwezig is."""
         for plugin in msg.get("plugins", msg.get("integrations", [])):
             plugin_id = plugin.get("plugin_id") or plugin.get("integration_id")
             if not plugin_id:
                 continue
+
+            plugin_config = dict(plugin.get("config") or {})
+            if plugin.get("poll_interval"):
+                plugin_config["collect_interval_s"] = plugin["poll_interval"]
+            enabled = plugin.get("enabled", True)
+
             database.upsert_plugin(
                 plugin_id,
                 target_version=plugin.get("target_version"),
-                config_json=json.dumps(plugin.get("config", {})),
+                config_json=json.dumps(plugin_config),
+                status="installed" if enabled else "paused",
             )
+
+            # Altijd eerst stoppen (no-op als hij nog niet draaide) zodat een
+            # configwijziging op een al lopende plugin ook echt doorwerkt.
+            await self.supervisor.stop_plugin(plugin_id)
+            if enabled:
+                await self._start_plugin_from_row({"plugin_id": plugin_id, "config": json.dumps(plugin_config)})
 
     async def _on_command(self, msg: dict) -> str:
         plugin_id = msg.get("plugin_id", "")
