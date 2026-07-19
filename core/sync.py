@@ -65,14 +65,19 @@ class SyncClient:
     async def _handle_message(self, msg: dict) -> None:
         channel = msg.get("channel")
         if channel == "config" and self.on_config:
+            plugins = msg.get("plugins", msg.get("integrations", []))
+            log.info("config ontvangen: %d plugin(s) — %s", len(plugins),
+                     ", ".join(p.get("plugin_id") or p.get("integration_id", "?") for p in plugins))
             await self.on_config(msg)
         elif channel == "command" and self.on_command:
+            log.info("command ontvangen: id=%s type=%s plugin=%s", msg.get("id"), msg.get("type"), msg.get("plugin_id"))
             result = await self.on_command(msg)
             await self._send({"channel": "ack", "command_id": msg.get("id"), "status": result or "received"})
         elif msg.get("type") == "test_integration":
             # Legacy commandotype (geen "channel"-veld, zelfde als v1.0.26):
             # platform vraagt om een eenmalige verbindingstest met een nog niet
             # opgeslagen config, gebruikt door de "Test verbinding"-knop in de UI.
+            log.info("test_integration ontvangen voor %s", msg.get("integration_id"))
             await self._handle_test_integration(msg)
 
     async def _handle_test_integration(self, msg: dict) -> None:
@@ -142,13 +147,22 @@ class SyncClient:
             ]
             if await self._send({"channel": "data", "readings": readings}):
                 database.mark_synced([i for ids in ids_by_group.values() for i in ids])
+                log.info("readings verstuurd: %d item(s), %d meting(en)", len(readings), len(rows))
+            else:
+                log.warning("readings NIET verstuurd (geen WS-verbinding) — blijven lokaal gebufferd (%d meting(en))", len(rows))
 
     async def _health_flush_loop(self) -> None:
         while True:
-            await self._send({
+            plugins = self.health.snapshot()
+            sent = await self._send({
                 "channel": "health",
                 "agent_version": AGENT_VERSION,
                 "uptime_s": int(time.monotonic() - self._started_at),
-                "plugins": self.health.snapshot(),
+                "plugins": plugins,
             })
+            if sent:
+                log.info("health verstuurd: %d plugin(s) — %s", len(plugins),
+                         ", ".join(f"{p['id']}={p['status']}" for p in plugins) or "geen")
+            else:
+                log.warning("health NIET verstuurd (geen WS-verbinding)")
             await asyncio.sleep(config.HEALTH_FLUSH_INTERVAL_S)

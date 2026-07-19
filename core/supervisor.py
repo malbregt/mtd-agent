@@ -52,6 +52,7 @@ class Supervisor:
                     )
                     self.health.mark_ok(plugin_id)
                     self._restart_counts[plugin_id] = 0
+                    log.debug("plugin %s: %d meting(en) verzameld", plugin_id, len(readings))
                     for reading in readings:
                         await self.bus.publish("reading", reading)
                     await asyncio.sleep(collect_interval_s)

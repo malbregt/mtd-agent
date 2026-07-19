@@ -84,6 +84,7 @@ class Agent:
             plugin = plugin_cls(self.device_id, plugin_config)
             collect_interval = plugin_config.get("collect_interval_s", 60)
             self.supervisor.start_plugin(plugin, collect_interval)
+            log.info("plugin %s gestart (interval %ss)", plugin_id, collect_interval)
         except Exception:
             log.exception("kon plugin %s niet starten", plugin_id)
             database.upsert_plugin(plugin_id, status="failed")
@@ -114,9 +115,13 @@ class Agent:
 
             # Altijd eerst stoppen (no-op als hij nog niet draaide) zodat een
             # configwijziging op een al lopende plugin ook echt doorwerkt.
+            was_running = self.supervisor.is_running(plugin_id)
             await self.supervisor.stop_plugin(plugin_id)
             if enabled:
+                log.info("plugin %s %s via config-push", plugin_id, "herstart" if was_running else "nieuw gestart")
                 await self._start_plugin_from_row({"plugin_id": plugin_id, "config": json.dumps(plugin_config)})
+            elif was_running:
+                log.info("plugin %s gestopt via config-push (uitgeschakeld)", plugin_id)
 
     async def _on_command(self, msg: dict) -> str:
         plugin_id = msg.get("plugin_id", "")
