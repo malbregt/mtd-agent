@@ -43,6 +43,14 @@ class HealthTracker:
             last_error, restart_count,
         )
 
+    def clear(self, plugin_id: str) -> None:
+        """Verwijdert de health-status van een plugin die bewust gestopt is
+        (uitgeschakeld/verwijderd via config-push) — anders blijft de laatst
+        bekende status (bv. groen 'ok') voor altijd zichtbaar op de lokale
+        statuspagina, ook al draait de plugin allang niet meer."""
+        self._health.pop(plugin_id, None)
+        database.delete_plugin_health(plugin_id)
+
     def snapshot(self) -> list[dict]:
         return [
             {

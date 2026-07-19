@@ -96,10 +96,14 @@ class Agent:
         heeft een nieuw aangemaakte sub-integratie pas effect na een handmatige
         herstart van de agent. Plugin-download zelf (van GitHub) is nog TODO;
         voor nu wordt aangenomen dat de vendored plugin-code al aanwezig is."""
-        for plugin in msg.get("plugins", msg.get("integrations", [])):
+        plugins = msg.get("plugins", msg.get("integrations", []))
+        seen_plugin_ids: set[str] = set()
+
+        for plugin in plugins:
             plugin_id = plugin.get("plugin_id") or plugin.get("integration_id")
             if not plugin_id:
                 continue
+            seen_plugin_ids.add(plugin_id)
 
             plugin_config = dict(plugin.get("config") or {})
             if plugin.get("poll_interval"):
@@ -120,8 +124,22 @@ class Agent:
             if enabled:
                 log.info("plugin %s %s via config-push", plugin_id, "herstart" if was_running else "nieuw gestart")
                 await self._start_plugin_from_row({"plugin_id": plugin_id, "config": json.dumps(plugin_config)})
-            elif was_running:
-                log.info("plugin %s gestopt via config-push (uitgeschakeld)", plugin_id)
+            else:
+                # Health-status opruimen, anders blijft een oud "ok" (groen)
+                # voor altijd op de lokale statuspagina staan terwijl de
+                # plugin niet meer draait.
+                self.health.clear(plugin_id)
+                if was_running:
+                    log.info("plugin %s gestopt via config-push (uitgeschakeld)", plugin_id)
+
+        # Plugins die niet meer in de lijst voorkomen (instantie verwijderd op
+        # het platform) moeten ook stoppen — anders blijft een verwijderde
+        # sub-integratie stilletjes doorpollen.
+        for plugin_id in list(self.supervisor.running_plugin_ids()):
+            if plugin_id not in seen_plugin_ids:
+                await self.supervisor.stop_plugin(plugin_id)
+                self.health.clear(plugin_id)
+                log.info("plugin %s gestopt (niet meer in config — instantie verwijderd)", plugin_id)
 
     async def _on_command(self, msg: dict) -> str:
         plugin_id = msg.get("plugin_id", "")

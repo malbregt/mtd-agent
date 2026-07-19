@@ -169,6 +169,12 @@ def all_plugin_health() -> list[sqlite3.Row]:
         return conn.execute("SELECT * FROM plugin_health").fetchall()
 
 
+def delete_plugin_health(plugin_id: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM plugin_health WHERE plugin_id = ?", (plugin_id,))
+        conn.commit()
+
+
 def log_command(command_id: str, plugin_id: str, action: str, params_json: str, status: str) -> None:
     with _connect() as conn:
         conn.execute(

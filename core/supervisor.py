@@ -33,6 +33,9 @@ class Supervisor:
     def is_running(self, plugin_id: str) -> bool:
         return plugin_id in self._tasks
 
+    def running_plugin_ids(self) -> list[str]:
+        return list(self._tasks.keys())
+
     async def stop_plugin(self, plugin_id: str) -> None:
         self._stopped.add(plugin_id)
         task = self._tasks.pop(plugin_id, None)
