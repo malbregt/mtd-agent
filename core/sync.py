@@ -79,6 +79,34 @@ class SyncClient:
             # opgeslagen config, gebruikt door de "Test verbinding"-knop in de UI.
             log.info("test_integration ontvangen voor %s", msg.get("integration_id"))
             await self._handle_test_integration(msg)
+        elif msg.get("type") == "config_update":
+            # Legacy signaal (geen "channel"-veld, zelfde als v1.0.26): platform
+            # stuurt dit bij elke wijziging aan een sub-integratie (toevoegen,
+            # config aanpassen, pauzeren), maar zonder de pluginlijst zelf mee te
+            # sturen — de agent moet die apart ophalen via GET /agent/config.
+            log.info("config_update-signaal ontvangen, config opnieuw ophalen")
+            await self._refetch_config()
+
+    async def _refetch_config(self) -> None:
+        if not self.on_config:
+            return
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{config.PLATFORM_API_URL}/agent/config",
+                    headers={"X-Api-Key": config.AGENT_KEY},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json()
+        except Exception as e:
+            log.warning("config ophalen mislukt: %s", e)
+            return
+
+        plugins = payload.get("plugins", payload.get("integrations", []))
+        log.info("config ontvangen (via ophalen): %d plugin(s) — %s", len(plugins),
+                 ", ".join(p.get("plugin_id") or p.get("integration_id", "?") for p in plugins) or "geen")
+        await self.on_config(payload)
 
     async def _handle_test_integration(self, msg: dict) -> None:
         from core.agent import _load_plugin_class  # lazy: voorkomt circulaire import met core.agent
