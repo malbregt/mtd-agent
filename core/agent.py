@@ -1,10 +1,15 @@
 import asyncio
 import importlib.util
+import ipaddress
 import json
 import logging
 import socket
 import sys
+import time
+import urllib.parse
 from pathlib import Path
+
+import aiohttp
 
 import config
 from core import database
@@ -23,6 +28,58 @@ def _lan_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 2.0) 
         return True
     except OSError:
         return False
+
+
+MAX_PROBE_BODY_CHARS = 20_000
+
+
+async def _run_probe(payload: dict) -> dict:
+    """Voert een generieke HTTP-aanroep uit vanaf de Pi zelf, voor een admin
+    die vanuit het portaal wil uitproberen wat een nog-onbekend apparaat op
+    het lokale netwerk van de klant teruggeeft (bv. bij het bouwen van een
+    nieuwe integratie). Bewust beperkt tot het lokale netwerk (RFC1918/
+    loopback/link-local) — dit voorkomt dat de probe-functie misbruikt kan
+    worden als generieke open-proxy vanaf een klant-Pi naar het publieke
+    internet."""
+    method = (payload.get("method") or "GET").upper()
+    url = payload.get("url") or ""
+    headers = payload.get("headers") or {}
+    body = payload.get("body")
+    timeout_s = min(float(payload.get("timeout_s") or 10), 30)
+
+    parsed = urllib.parse.urlsplit(url)
+    hostname = parsed.hostname
+    if not hostname or method not in ("GET", "POST"):
+        return {"success": False, "error": "Ongeldige of ontbrekende URL/methode"}
+
+    try:
+        loop = asyncio.get_running_loop()
+        addr_info = await loop.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        for family, _, _, _, sockaddr in addr_info:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+                return {"success": False, "error": f"Alleen lokaal netwerk toegestaan, {ip} is publiek"}
+    except socket.gaierror as e:
+        return {"success": False, "error": f"Kan hostnaam niet herleiden: {e}"}
+
+    start = time.monotonic()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                method, url, headers=headers, data=body,
+                timeout=aiohttp.ClientTimeout(total=timeout_s),
+            ) as resp:
+                text_body = await resp.text()
+                return {
+                    "success": True,
+                    "status_code": resp.status,
+                    "headers": dict(resp.headers),
+                    "body": text_body[:MAX_PROBE_BODY_CHARS],
+                    "truncated": len(text_body) > MAX_PROBE_BODY_CHARS,
+                    "elapsed_ms": int((time.monotonic() - start) * 1000),
+                }
+    except Exception as e:
+        return {"success": False, "error": str(e), "elapsed_ms": int((time.monotonic() - start) * 1000)}
 
 
 # Vendored plugins die met de agent worden meegeleverd (in de repo zelf,
@@ -145,10 +202,18 @@ class Agent:
                 self.health.clear(plugin_id)
                 log.info("plugin %s gestopt (niet meer in config — instantie verwijderd)", plugin_id)
 
-    async def _on_command(self, msg: dict) -> str:
+    async def _on_command(self, msg: dict) -> dict | str:
         plugin_id = msg.get("plugin_id", "")
         action = msg.get("type", "")
-        database.log_command(msg.get("id", ""), plugin_id, action, json.dumps(msg.get("payload", {})), "received")
+        command_id = msg.get("id") or msg.get("request_id") or ""
+        database.log_command(command_id, plugin_id, action, json.dumps(msg.get("payload", {})), "received")
+
+        if action == "probe":
+            result = await _run_probe(msg.get("payload") or {})
+            database.log_command(command_id, plugin_id, action, json.dumps(msg.get("payload", {})),
+                                  "executed" if result.get("success") else "failed")
+            return result
+
         return "not_supported"
 
 

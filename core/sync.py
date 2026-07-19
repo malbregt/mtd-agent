@@ -71,9 +71,15 @@ class SyncClient:
                      ", ".join(p.get("plugin_id") or p.get("integration_id", "?") for p in plugins))
             await self.on_config(msg)
         elif channel == "command" and self.on_command:
-            log.info("command ontvangen: id=%s type=%s plugin=%s", msg.get("id"), msg.get("type"), msg.get("plugin_id"))
+            command_id = msg.get("id") or msg.get("request_id")
+            log.info("command ontvangen: id=%s type=%s plugin=%s", command_id, msg.get("type"), msg.get("plugin_id"))
             result = await self.on_command(msg)
-            await self._send({"channel": "ack", "command_id": msg.get("id"), "status": result or "received"})
+            ack: dict = {"channel": "ack", "command_id": command_id}
+            if isinstance(result, dict):
+                ack["result"] = result
+            else:
+                ack["status"] = result or "received"
+            await self._send(ack)
         elif msg.get("type") == "test_integration":
             # Legacy commandotype (geen "channel"-veld, zelfde als v1.0.26):
             # platform vraagt om een eenmalige verbindingstest met een nog niet
