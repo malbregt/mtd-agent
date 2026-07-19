@@ -115,6 +115,8 @@ class Agent:
                 target_version=plugin.get("target_version"),
                 config_json=json.dumps(plugin_config),
                 status="installed" if enabled else "paused",
+                label=plugin.get("name"),
+                slug=plugin.get("slug"),
             )
 
             # Altijd eerst stoppen (no-op als hij nog niet draaide) zodat een

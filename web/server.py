@@ -46,9 +46,14 @@ def build_app(agent) -> FastAPI:
 
     @app.get("/api/health")
     def api_health():
+        meta = database.plugin_metadata()
+        plugins = [
+            {**p, "label": meta.get(p["id"], {}).get("label"), "slug": meta.get(p["id"], {}).get("slug")}
+            for p in agent.health.snapshot()
+        ]
         return {
             "agent_status": "online" if agent.sync and agent.sync._ws else "offline",
-            "plugins": agent.health.snapshot(),
+            "plugins": plugins,
         }
 
     @app.get("/api/readings")

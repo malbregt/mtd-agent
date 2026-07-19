@@ -11,9 +11,11 @@
   .card { background: #1a1d24; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
   .row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid #2a2e37; }
   .row:last-child { border-bottom: none; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 0.5rem; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 0.5rem; background: #5a606e; }
   .ok { background: #3ecf6e; } .degraded, .paused { background: #e6a23c; } .error, .timeout { background: #e5484d; }
   .meta { color: #9aa0aa; font-size: 0.85rem; }
+  .plugin-name { font-weight: 500; }
+  .plugin-slug { color: #9aa0aa; font-size: 0.8rem; margin-left: 0.4rem; }
 </style>
 </head>
 <body>
@@ -38,12 +40,18 @@
 
         const plugins = health.plugins || [];
         document.getElementById('plugins').innerHTML = plugins.length
-          ? plugins.map(p => `
-              <div class="row">
-                <span><span class="dot ${p.status}"></span>${p.id}${p.status === 'paused' ? ' <span class="meta">(gepauzeerd)</span>' : ''}${p.status === 'degraded' ? ' <span class="meta">(storing)</span>' : ''}</span>
-                <span class="meta">${p.status === 'paused' ? '' : (p.last_reading_at ?? 'geen data')}</span>
-              </div>
-            `).join('')
+          ? plugins.map(p => {
+              const displayName = p.label || p.id;
+              const slugPart = p.slug ? `<span class="plugin-slug">(${p.slug})</span>` : '';
+              const statusNote = p.status === 'paused' ? ' <span class="meta">(gepauzeerd)</span>'
+                : p.status === 'degraded' ? ' <span class="meta">(storing)</span>' : '';
+              return `
+                <div class="row">
+                  <span><span class="dot ${p.status}"></span><span class="plugin-name">${displayName}</span>${slugPart}${statusNote}</span>
+                  <span class="meta">${p.status === 'paused' ? '' : (p.last_reading_at ?? 'geen data')}</span>
+                </div>
+              `;
+            }).join('')
           : '<div class="meta">Geen plugins actief</div>';
       } catch (e) {
         console.error(e);
