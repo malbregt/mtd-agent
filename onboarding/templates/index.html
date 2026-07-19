@@ -29,7 +29,7 @@
 
   <label>Instance key</label>
   <input type="text" id="instance-key" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" autocorrect="off" spellcheck="false">
-  <p class="hint">Unieke sleutel van dit apparaat — aangemaakt in het portaal onder Apparaten.</p>
+  <p class="hint">Unieke sleutel van dit apparaat — al ingevuld als je de setup-QR-code hebt gescand, anders te vinden in het portaal onder Apparaten.</p>
 
   <div class="wifi-section">
     <h3>WiFi (optioneel bij kabelverbinding)</h3>
@@ -93,6 +93,18 @@
     }
   }
 
+  function prefillFromQr() {
+    // Setup-QR-code linkt naar http://192.168.4.1/?key=<instance_key> — dat
+    // scheelt op een telefoon het overtypen van een lange UUID. Vult alleen
+    // in, bevestigen ("Apparaat koppelen") blijft een bewuste gebruikersactie.
+    const params = new URLSearchParams(window.location.search);
+    const key = params.get('key');
+    if (key) {
+      document.getElementById('instance-key').value = key;
+    }
+  }
+
+  prefillFromQr();
   loadNetworks();
 </script>
 </body>
