@@ -3,15 +3,15 @@
 # agent-token zijn al bekend bij het platform) — slaat de hotspot/captive-portal
 # onboarding-flow bewust over, want die is voor onbekende consumentenapparaten.
 #
-# Gebruik (op de Pi, als root/via sudo):
+# Gebruik (op de Pi, als root/via sudo) — --device-id is optioneel/informatief,
+# het platform herleidt het device zelf uit --agent-key:
 #   curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
 #     | sudo bash -s -- \
-#         --device-id MTD-2026-00123 \
 #         --agent-key mtd_agent_xxxxxxxx \
 #         --plugin p1_serial \
 #         --plugin-config '{"port":"/dev/ttyUSB0","baudrate":115200,"collect_interval_s":10}'
 #
-# Of lokaal na een git clone: bash install.sh --device-id ... --agent-key ... --plugin ... --plugin-config '...'
+# Of lokaal na een git clone: bash install.sh --agent-key ... --plugin ... --plugin-config '...'
 set -euo pipefail
 
 REPO_URL="https://github.com/malbregt/mtd-agent.git"
@@ -34,8 +34,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -z "$DEVICE_ID" ] || [ -z "$AGENT_KEY" ]; then
-  echo "Verplicht: --device-id en --agent-key" >&2
+if [ -z "$AGENT_KEY" ]; then
+  echo "Verplicht: --agent-key (het platform herleidt device_id zelf uit dit token)" >&2
   exit 1
 fi
 
@@ -85,12 +85,13 @@ import config as _cfg
 _cfg.DB_PATH = "/data/agent.db"
 from core import database
 
-device_id = os.environ["MTD_DEVICE_ID"]
+device_id = os.environ.get("MTD_DEVICE_ID", "")
 plugin_id = os.environ["MTD_PLUGIN_ID"]
 plugin_config_raw = os.environ.get("MTD_PLUGIN_CONFIG", "{}").strip()
 
 database.init_db("/data/agent.db")
-database.set_device_config("device_id", device_id)
+if device_id:
+    database.set_device_config("device_id", device_id)
 database.set_device_config("onboarded", "true")
 database.set_device_config("network_mode", "lan")
 
