@@ -62,8 +62,16 @@ def build_app(agent) -> FastAPI:
             }
             for p in agent.health.snapshot()
         ]
+        sync = agent.sync
+        if sync and sync.authenticated:
+            agent_status = "online"
+        elif sync and sync.auth_error:
+            agent_status = "auth_error"
+        else:
+            agent_status = "offline"
         return {
-            "agent_status": "online" if agent.sync and agent.sync._ws else "offline",
+            "agent_status": agent_status,
+            "auth_error": sync.auth_error if sync else None,
             "plugins": plugins,
         }
 

@@ -25,10 +25,13 @@
   .btn:disabled { opacity: 0.5; cursor: default; }
   .status-msg { font-size: 0.8rem; margin-top: 0.5rem; }
   .status-msg.ok { color: #3ecf6e; } .status-msg.error { color: #e5484d; }
+  .banner { background: #3a1518; border: 1px solid #e5484d; color: #ff8a8a; border-radius: 8px;
+            padding: 0.7rem 0.9rem; margin-bottom: 0.75rem; font-size: 0.85rem; display: none; }
 </style>
 </head>
 <body>
   <h1>⚡ MTD Agent</h1>
+  <div class="banner" id="auth-banner"></div>
   <div class="card" id="device"></div>
   <div class="card" id="plugins"></div>
 
@@ -52,6 +55,15 @@
           fetch('/api/health').then(r => r.json()),
           fetch('/api/device').then(r => r.json()),
         ]);
+
+        const banner = document.getElementById('auth-banner');
+        if (health.agent_status === 'auth_error') {
+          banner.style.display = 'block';
+          banner.textContent = '⚠ Agent-token klopt niet: ' + (health.auth_error || 'authenticatie mislukt') +
+            ' — werk het token hieronder bij.';
+        } else {
+          banner.style.display = 'none';
+        }
 
         document.getElementById('device').innerHTML = `
           <div class="row"><span>Device</span><span>${device.device_id ?? '-'}</span></div>

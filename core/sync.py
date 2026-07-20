@@ -33,6 +33,11 @@ class SyncClient:
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._started_at = time.monotonic()
         self._reading_queue: asyncio.Queue[Reading] = bus.subscribe("reading")
+        # Aparte flag naast self._ws: de WS-handshake (TCP+HTTP-upgrade) kan
+        # slagen terwijl het platform het token daarna alsnog afwijst — pas de
+        # "connected"-bevestiging van het platform betekent echt geauthenticeerd.
+        self.authenticated = False
+        self.auth_error: str | None = None
 
     async def run(self) -> None:
         await asyncio.gather(
@@ -52,18 +57,35 @@ class SyncClient:
                         f"{config.PLATFORM_WS_URL}?token={config.AGENT_KEY}", headers=headers
                     ) as ws:
                         self._ws = ws
-                        log.info("verbonden met platform")
+                        log.debug("WS-handshake gelukt, wacht op authenticatie-bevestiging")
                         async for msg in ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
                                 await self._handle_message(json.loads(msg.data))
                             elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
                                 break
+                        if not self.authenticated and not self.auth_error:
+                            # Verbinding verbroken vóórdat "connected" of "error" ooit
+                            # binnenkwam — geen duidelijke reden, wel vermelden.
+                            self.auth_error = "Verbinding verbroken vóór authenticatie-bevestiging"
             except Exception as e:
                 log.warning("WS-verbinding mislukt/verbroken: %s — herverbinden over %ss", e, config.WS_RECONNECT_DELAY_S)
             self._ws = None
+            self.authenticated = False
             await asyncio.sleep(config.WS_RECONNECT_DELAY_S)
 
     async def _handle_message(self, msg: dict) -> None:
+        msg_type = msg.get("type")
+        if msg_type == "connected":
+            self.authenticated = True
+            self.auth_error = None
+            log.info("verbonden en geauthenticeerd bij platform (device_id=%s)", msg.get("device_id"))
+            return
+        if msg_type == "error":
+            self.auth_error = msg.get("detail") or "onbekende fout"
+            self.authenticated = False
+            log.error("authenticatie bij platform mislukt: %s — controleer AGENT_KEY", self.auth_error)
+            return
+
         channel = msg.get("channel")
         if channel == "config" and self.on_config:
             plugins = msg.get("plugins", msg.get("integrations", []))
