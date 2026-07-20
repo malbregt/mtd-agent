@@ -64,10 +64,13 @@ async def _run_probe(payload: dict) -> dict:
 
     start = time.monotonic()
     try:
+        # ssl=False: lokale apparaten (bv. Enphase Envoy) gebruiken vaak een
+        # zelfondertekend certificaat. Blijft veilig genoeg omdat de SSRF-guard
+        # hierboven al garandeert dat dit alleen naar lokaal netwerk gaat.
         async with aiohttp.ClientSession() as session:
             async with session.request(
                 method, url, headers=headers, data=body,
-                timeout=aiohttp.ClientTimeout(total=timeout_s),
+                timeout=aiohttp.ClientTimeout(total=timeout_s), ssl=False,
             ) as resp:
                 text_body = await resp.text()
                 return {
