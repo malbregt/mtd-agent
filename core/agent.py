@@ -3,6 +3,7 @@ import importlib.util
 import ipaddress
 import json
 import logging
+import secrets
 import socket
 import sys
 import time
@@ -10,6 +11,7 @@ import urllib.parse
 from pathlib import Path
 
 import aiohttp
+import bcrypt
 
 import config
 from core import database
@@ -20,6 +22,25 @@ from core.supervisor import Supervisor
 from core.sync import SyncClient
 
 log = logging.getLogger("agent")
+
+
+def _ensure_factory_password() -> None:
+    """Genereert bij de eerste boot een fabriekswachtwoord — zonder dit is er
+    domweg niets om /api/password, /api/network, /api/token en
+    /api/reset-password tegen te controleren, dus die blijven anders voor
+    iedereen onbruikbaar. Wordt eenmalig gegenereerd en duidelijk gelogd
+    (blijft terug te vinden via journalctl); te wijzigen via /api/password,
+    en te resetten naar deze waarde via /api/reset-password."""
+    if database.get_device_config("current_password_hash"):
+        return
+    factory_password = secrets.token_hex(4)  # 8 leesbare hex-tekens
+    password_hash = bcrypt.hashpw(factory_password.encode(), bcrypt.gensalt()).decode()
+    database.set_device_config("factory_password", factory_password)
+    database.set_device_config("current_password_hash", password_hash)
+    log.warning("=" * 60)
+    log.warning("FABRIEKSWACHTWOORD (eenmalig getoond, bewaar dit): %s", factory_password)
+    log.warning("Gebruik dit wachtwoord bij /api/password, /api/network, /api/token")
+    log.warning("=" * 60)
 
 
 def _lan_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 2.0) -> bool:
@@ -124,6 +145,7 @@ class Agent:
     async def bootstrap(self) -> None:
         database.init_db()
         self.device_id = database.get_device_config("device_id")
+        _ensure_factory_password()
 
         if not _lan_available():
             log.warning("geen LAN beschikbaar — start hotspot/captive portal")
