@@ -45,9 +45,14 @@ def _decode_token_exp(token: str) -> float:
 def _get_token(cfg: dict) -> str:
     import requests
 
+    # JSON, geen form-urlencoded: Enphase's login-endpoint accepteert alleen
+    # nog JSON-bodies (geverifieerd via de Edge Probe-tool — een form-
+    # urlencoded POST met exact dezelfde credentials gaf altijd de generieke
+    # "Please provide a username and password"-fout, ongeacht de inhoud).
     login_resp = requests.post(
         ENLIGHTEN_LOGIN_URL,
-        data={"user[email]": cfg.get("username"), "user[password]": cfg.get("password")},
+        json={"user": {"email": cfg.get("username"), "password": cfg.get("password")}},
+        headers={"Accept": "application/json"},
         timeout=10,
     )
     login_resp.raise_for_status()
