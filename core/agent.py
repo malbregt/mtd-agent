@@ -111,18 +111,21 @@ async def _run_probe(payload: dict) -> dict:
 
 
 # Vendored plugins die met de agent worden meegeleverd (in de repo zelf,
-# onder mtd-agent/plugins/). PLUGIN_DIR (default /data/plugins) is bedoeld
-# voor plugins die later via de nog-niet-gebouwde GitHub-downloadflow
-# binnenkomen; zolang die niet bestaat, vallen we terug op de vendored versie.
+# onder mtd-agent/plugins/) — de baseline-versie waarmee een Pi start zonder
+# GitHub-afhankelijkheid. PLUGIN_DIR (default /data/plugins) krijgt voorrang
+# zodra core/plugin_download.py daar een (nieuwere) versie heeft neergezet.
 VENDORED_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins"
+
+
+def _plugin_dir_for(plugin_id: str) -> Path:
+    downloaded = Path(config.PLUGIN_DIR) / plugin_id
+    return downloaded if (downloaded / "plugin.py").exists() else VENDORED_PLUGIN_DIR / plugin_id
 
 
 def _load_plugin_class(plugin_id: str) -> type[DevicePlugin]:
     """Laadt plugins/{plugin_id}/plugin.py dynamisch via importlib en zoekt de
     eerste DevicePlugin-subklasse erin — geen registratie/decorator nodig."""
-    module_path = Path(config.PLUGIN_DIR) / plugin_id / "plugin.py"
-    if not module_path.exists():
-        module_path = VENDORED_PLUGIN_DIR / plugin_id / "plugin.py"
+    module_path = _plugin_dir_for(plugin_id) / "plugin.py"
     spec = importlib.util.spec_from_file_location(f"plugins.{plugin_id}", module_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -132,6 +135,14 @@ def _load_plugin_class(plugin_id: str) -> type[DevicePlugin]:
         if isinstance(attr, type) and issubclass(attr, DevicePlugin) and attr is not DevicePlugin:
             return attr
     raise RuntimeError(f"Geen DevicePlugin-subklasse gevonden in {module_path}")
+
+
+def _read_manifest_version(plugin_id: str) -> str | None:
+    manifest_path = _plugin_dir_for(plugin_id) / "manifest.json"
+    try:
+        return json.loads(manifest_path.read_text()).get("version")
+    except Exception:
+        return None
 
 
 class Agent:
@@ -171,6 +182,13 @@ class Agent:
             collect_interval = plugin_config.get("collect_interval_s", 60)
             self.supervisor.start_plugin(plugin, collect_interval)
             log.info("plugin %s gestart (interval %ss)", plugin_id, collect_interval)
+            if not database.get_installed_version(plugin_id):
+                # Nog geen versie geregistreerd (bv. de vendored versie, nooit
+                # via GitHub gedownload) — lees 'm uit manifest.json zodat de
+                # statuspagina niet leeg blijft staan.
+                vendored_version = _read_manifest_version(plugin_id)
+                if vendored_version:
+                    database.upsert_plugin(plugin_id, installed_version=vendored_version)
         except Exception:
             log.exception("kon plugin %s niet starten", plugin_id)
             database.upsert_plugin(plugin_id, status="failed")

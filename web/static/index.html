@@ -87,11 +87,12 @@
               const instanceLabel = p.label || p.slug || '';
               const slugSuffix = (p.slug && p.slug !== instanceLabel) ? ` (${p.slug})` : '';
               const instancePart = instanceLabel ? `<span class="plugin-slug">— ${instanceLabel}${slugSuffix}</span>` : '';
+              const versionPart = p.installed_version ? `<span class="plugin-slug">v${p.installed_version}</span>` : '';
               const statusNote = p.status === 'paused' ? ' <span class="meta">(gepauzeerd)</span>'
                 : p.status === 'degraded' ? ' <span class="meta">(storing)</span>' : '';
               return `
                 <div class="row">
-                  <span><span class="dot ${p.status}"></span><span class="plugin-name">${primary}</span> ${instancePart}${statusNote}</span>
+                  <span><span class="dot ${p.status}"></span><span class="plugin-name">${primary}</span> ${instancePart} ${versionPart}${statusNote}</span>
                   <span class="meta">${p.status === 'paused' ? '' : (p.last_reading_at ?? 'geen data')}</span>
                 </div>
               `;

@@ -145,14 +145,18 @@ def upsert_plugin(plugin_id: str, target_version: str | None = None,
 
 
 def plugin_metadata() -> dict[str, dict]:
-    """plugin_id → {label, slug, integration_name} — gebruikt om de lokale
-    statuspagina de gebruiksvriendelijke integratienaam ("HomeWizard
-    Watermeter") als primaire naam te tonen, met de instantie-naam/-ID erachter,
-    i.p.v. alleen de technische plugin_id (bv. 'homewizard_p1')."""
+    """plugin_id → {label, slug, integration_name, installed_version} —
+    gebruikt om de lokale statuspagina de gebruiksvriendelijke integratienaam
+    ("HomeWizard Watermeter") als primaire naam te tonen, met de instantie-
+    naam/-ID en het geïnstalleerde versienummer erachter, i.p.v. alleen de
+    technische plugin_id (bv. 'homewizard_p1')."""
     with _connect() as conn:
-        rows = conn.execute("SELECT plugin_id, label, slug, integration_name FROM agent_plugins").fetchall()
+        rows = conn.execute(
+            "SELECT plugin_id, label, slug, integration_name, installed_version FROM agent_plugins"
+        ).fetchall()
         return {r["plugin_id"]: {"label": r["label"], "slug": r["slug"],
-                                  "integration_name": r["integration_name"]} for r in rows}
+                                  "integration_name": r["integration_name"],
+                                  "installed_version": r["installed_version"]} for r in rows}
 
 
 def get_plugin_config(plugin_id: str) -> dict:

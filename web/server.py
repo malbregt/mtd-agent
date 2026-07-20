@@ -59,6 +59,7 @@ def build_app(agent) -> FastAPI:
                 "label": meta.get(p["id"], {}).get("label"),
                 "slug": meta.get(p["id"], {}).get("slug"),
                 "integration_name": meta.get(p["id"], {}).get("integration_name"),
+                "installed_version": meta.get(p["id"], {}).get("installed_version"),
             }
             for p in agent.health.snapshot()
         ]
