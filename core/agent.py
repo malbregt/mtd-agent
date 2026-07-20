@@ -35,32 +35,36 @@ MAX_PROBE_BODY_CHARS = 20_000
 
 async def _run_probe(payload: dict) -> dict:
     """Voert een generieke HTTP-aanroep uit vanaf de Pi zelf, voor een admin
-    die vanuit het portaal wil uitproberen wat een nog-onbekend apparaat op
-    het lokale netwerk van de klant teruggeeft (bv. bij het bouwen van een
-    nieuwe integratie). Bewust beperkt tot het lokale netwerk (RFC1918/
-    loopback/link-local) — dit voorkomt dat de probe-functie misbruikt kan
-    worden als generieke open-proxy vanaf een klant-Pi naar het publieke
-    internet."""
+    die vanuit het portaal wil uitproberen wat een nog-onbekend apparaat
+    teruggeeft (bv. bij het bouwen van een nieuwe integratie). Standaard
+    beperkt tot het lokale netwerk (RFC1918/loopback/link-local) — dit
+    voorkomt dat de probe-functie misbruikt kan worden als generieke
+    open-proxy vanaf een klant-Pi naar het publieke internet. Alleen als de
+    admin expliciet payload["allow_public"] meestuurt (bv. voor een cloud-
+    login-stap zoals Enphase Enlighten) wordt die controle overgeslagen."""
     method = (payload.get("method") or "GET").upper()
     url = payload.get("url") or ""
     headers = payload.get("headers") or {}
     body = payload.get("body")
     timeout_s = min(float(payload.get("timeout_s") or 10), 30)
+    allow_public = bool(payload.get("allow_public"))
 
     parsed = urllib.parse.urlsplit(url)
     hostname = parsed.hostname
     if not hostname or method not in ("GET", "POST"):
         return {"success": False, "error": "Ongeldige of ontbrekende URL/methode"}
 
-    try:
-        loop = asyncio.get_running_loop()
-        addr_info = await loop.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
-        for family, _, _, _, sockaddr in addr_info:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if not (ip.is_private or ip.is_loopback or ip.is_link_local):
-                return {"success": False, "error": f"Alleen lokaal netwerk toegestaan, {ip} is publiek"}
-    except socket.gaierror as e:
-        return {"success": False, "error": f"Kan hostnaam niet herleiden: {e}"}
+    if not allow_public:
+        try:
+            loop = asyncio.get_running_loop()
+            addr_info = await loop.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+            for family, _, _, _, sockaddr in addr_info:
+                ip = ipaddress.ip_address(sockaddr[0])
+                if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+                    return {"success": False, "error": f"Alleen lokaal netwerk toegestaan, {ip} is publiek "
+                                                          f"(vink 'publiek internet toestaan' aan om dit te overrulen)"}
+        except socket.gaierror as e:
+            return {"success": False, "error": f"Kan hostnaam niet herleiden: {e}"}
 
     start = time.monotonic()
     try:
