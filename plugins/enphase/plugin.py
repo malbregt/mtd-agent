@@ -82,8 +82,12 @@ def _get_json(url: str, token: str):
 class EnphasePlugin(DevicePlugin):
     def __init__(self, device_id: str, config: dict):
         super().__init__(device_id, config)
-        self._token = None
-        self._token_exp = 0
+        # Laad een eerder gecached token uit de lokale SQLite (via
+        # _on_config_push, dat interne "_"-sleutels behoudt) — het token is
+        # ~1 jaar geldig, dus na een herstart/reconfigure hoeft niet meteen
+        # opnieuw ingelogd te worden bij Enlighten.
+        self._token = config.get("_token")
+        self._token_exp = config.get("_token_exp", 0)
 
     @property
     def plugin_id(self) -> str:
@@ -99,6 +103,8 @@ class EnphasePlugin(DevicePlugin):
         if not self._token or self._token_exp - time.time() < TOKEN_REFRESH_MARGIN:
             self._token = _get_token(self.config)
             self._token_exp = _decode_token_exp(self._token)
+            from core import database
+            database.merge_plugin_config(self.plugin_id, {"_token": self._token, "_token_exp": self._token_exp})
             log.info("Enphase JWT ververst, geldig tot %s",
                       datetime.fromtimestamp(self._token_exp, tz=timezone.utc).isoformat())
 
@@ -154,9 +160,13 @@ class EnphasePlugin(DevicePlugin):
             data = await self.run_blocking(self._collect_blocking)
         except (requests.RequestException, RuntimeError):
             # Token kan door de Envoy zijn afgekeurd terwijl hij er lokaal nog
-            # geldig uitzag; forceer een verse token bij de volgende poll.
+            # geldig uitzag; forceer een verse token bij de volgende poll, en
+            # ruim ook de lokale cache op zodat een herstart geen dood token
+            # opnieuw inlaadt.
             self._token = None
             self._token_exp = 0
+            from core import database
+            database.merge_plugin_config(self.plugin_id, {"_token": None, "_token_exp": 0})
             raise
 
         timestamp = datetime.now(timezone.utc)

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 
@@ -144,6 +145,28 @@ def plugin_metadata() -> dict[str, dict]:
         rows = conn.execute("SELECT plugin_id, label, slug, integration_name FROM agent_plugins").fetchall()
         return {r["plugin_id"]: {"label": r["label"], "slug": r["slug"],
                                   "integration_name": r["integration_name"]} for r in rows}
+
+
+def get_plugin_config(plugin_id: str) -> dict:
+    with _connect() as conn:
+        row = conn.execute("SELECT config FROM agent_plugins WHERE plugin_id = ?", (plugin_id,)).fetchone()
+        return json.loads(row["config"]) if row and row["config"] else {}
+
+
+def merge_plugin_config(plugin_id: str, patch: dict) -> None:
+    """Voegt extra sleutels toe aan de bestaande config van een plugin zonder
+    de rest te overschrijven — gebruikt voor lokaal gecachede interne state
+    (bv. een Enphase-cloudtoken) die niet van het platform komt en dus niet
+    verloren mag gaan bij de volgende config-push (pauzeren/bewerken/etc.)."""
+    with _connect() as conn:
+        row = conn.execute("SELECT config FROM agent_plugins WHERE plugin_id = ?", (plugin_id,)).fetchone()
+        current = json.loads(row["config"]) if row and row["config"] else {}
+        current.update(patch)
+        conn.execute(
+            "UPDATE agent_plugins SET config = ?, updated_at = datetime('now') WHERE plugin_id = ?",
+            (json.dumps(current), plugin_id),
+        )
+        conn.commit()
 
 
 def store_reading(device_id: str, metric: str, value: float, unit: str,

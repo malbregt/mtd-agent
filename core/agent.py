@@ -172,6 +172,15 @@ class Agent:
             plugin_config = dict(plugin.get("config") or {})
             if plugin.get("poll_interval"):
                 plugin_config["collect_interval_s"] = plugin["poll_interval"]
+
+            # Interne, lokaal-gecachede state (bv. een Enphase-cloudtoken) komt
+            # niet van het platform en mag niet verloren gaan bij elke
+            # config-update (pauzeren/bewerken/etc.) — expliciet behouden i.p.v.
+            # de config volledig te overschrijven met wat het platform stuurt.
+            for key, value in database.get_plugin_config(plugin_id).items():
+                if key.startswith("_"):
+                    plugin_config.setdefault(key, value)
+
             enabled = plugin.get("enabled", True)
 
             database.upsert_plugin(
