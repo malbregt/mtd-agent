@@ -216,6 +216,12 @@ class Agent:
             if plugin_id not in seen_plugin_ids:
                 await self.supervisor.stop_plugin(plugin_id)
                 self.health.clear(plugin_id)
+                # Zonder dit blijft de rij op status='installed' staan, en laadt
+                # bootstrap() 'm bij de eerstvolgende volledige agent-herstart
+                # gewoon weer in (WHERE status = 'installed') — vóórdat de
+                # eerstvolgende config-push 'm alsnog stopt. Resultaat: een
+                # verwijderde instantie start telkens even op na een herstart.
+                database.upsert_plugin(plugin_id, status="removed")
                 log.info("plugin %s gestopt (niet meer in config — instantie verwijderd)", plugin_id)
 
     async def _on_command(self, msg: dict) -> dict | str:
