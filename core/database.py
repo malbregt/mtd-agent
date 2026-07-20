@@ -104,6 +104,14 @@ def load_installed_plugins() -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_installed_version(plugin_id: str) -> str | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT installed_version FROM agent_plugins WHERE plugin_id = ?", (plugin_id,)
+        ).fetchone()
+        return row["installed_version"] if row else None
+
+
 def upsert_plugin(plugin_id: str, target_version: str | None = None,
                    installed_version: str | None = None, config_json: str | None = None,
                    status: str | None = None, label: str | None = None,

@@ -180,8 +180,9 @@ class Agent:
         type=plugin_sync). Start/herstart de betreffende plugin meteen bij de
         supervisor i.p.v. alleen de config in SQLite bij te werken — anders
         heeft een nieuw aangemaakte sub-integratie pas effect na een handmatige
-        herstart van de agent. Plugin-download zelf (van GitHub) is nog TODO;
-        voor nu wordt aangenomen dat de vendored plugin-code al aanwezig is."""
+        herstart van de agent. Als target_version afwijkt van wat lokaal
+        geïnstalleerd is, wordt de plugin eerst van GitHub gedownload (los van
+        de agent-kern, alleen deze ene plugin) vóórdat 'ie (her)start."""
         plugins = msg.get("plugins", msg.get("integrations", []))
         seen_plugin_ids: set[str] = set()
 
@@ -204,10 +205,19 @@ class Agent:
                     plugin_config.setdefault(key, value)
 
             enabled = plugin.get("enabled", True)
+            target_version = plugin.get("target_version")
+
+            if target_version and enabled and database.get_installed_version(plugin_id) != target_version:
+                from core.plugin_download import ensure_plugin_version
+                if await ensure_plugin_version(plugin_id, target_version, plugin.get("target_sha256")):
+                    database.upsert_plugin(plugin_id, installed_version=target_version)
+                else:
+                    log.warning("plugin %s: download van versie %s mislukt, blijf op huidige versie draaien",
+                                plugin_id, target_version)
 
             database.upsert_plugin(
                 plugin_id,
-                target_version=plugin.get("target_version"),
+                target_version=target_version,
                 config_json=json.dumps(plugin_config),
                 status="installed" if enabled else "paused",
                 label=plugin.get("name"),
