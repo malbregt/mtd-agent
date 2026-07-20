@@ -7,34 +7,17 @@ hoofd-agent (main.py, poort 8080) draait dan nog niet of is net herstart.
 """
 import asyncio
 import logging
-import os
 import subprocess
 
 from flask import Flask, jsonify, render_template, request
 
 from core import database
+from core.env_file import write_agent_key
 
 log = logging.getLogger("onboarding")
 app = Flask(__name__)
 
 HOTSPOT_SCRIPT = "/opt/mtd-agent/scripts/setup-hotspot.sh"
-ENV_FILE = "/etc/mtd-agent/env"
-
-
-def _write_agent_key(agent_key: str) -> None:
-    """Schrijft het agent-token naar /etc/mtd-agent/env (AGENT_KEY), zoals
-    systemd/mtd-agent.service via EnvironmentFile inleest. device_id zelf
-    hoeft de agent niet te kennen — het platform herleidt dat server-side uit
-    dit token bij elke request/WS-verbinding (zie auth.get_current_device)."""
-    os.makedirs(os.path.dirname(ENV_FILE), exist_ok=True)
-    lines = []
-    if os.path.exists(ENV_FILE):
-        with open(ENV_FILE) as f:
-            lines = [l for l in f if not l.startswith("AGENT_KEY=")]
-    lines.append(f"AGENT_KEY={agent_key}\n")
-    with open(ENV_FILE, "w") as f:
-        f.writelines(lines)
-    os.chmod(ENV_FILE, 0o600)
 
 
 def apply_wifi_config(ssid: str, password: str) -> None:
@@ -74,7 +57,7 @@ def setup():
     if not instance_key:
         return jsonify({"error": "Instance key is verplicht"}), 400
 
-    _write_agent_key(instance_key)
+    write_agent_key(instance_key)
     database.set_device_config("onboarded", "true")
     database.set_device_config("network_mode", "wifi" if data.get("ssid") else "lan")
 

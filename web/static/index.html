@@ -16,12 +16,34 @@
   .meta { color: #9aa0aa; font-size: 0.85rem; }
   .plugin-name { font-weight: 500; }
   .plugin-slug { color: #9aa0aa; font-size: 0.8rem; margin-left: 0.4rem; }
+  .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.6rem; }
+  .field label { font-size: 0.8rem; color: #9aa0aa; }
+  .field input { background: #0f1115; border: 1px solid #2a2e37; border-radius: 6px; color: #e6e8eb;
+                 padding: 0.45rem 0.6rem; font-family: monospace; font-size: 0.85rem; }
+  .btn { background: #3ecf6e; color: #0f1115; border: none; border-radius: 6px; padding: 0.5rem 1rem;
+         font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .status-msg { font-size: 0.8rem; margin-top: 0.5rem; }
+  .status-msg.ok { color: #3ecf6e; } .status-msg.error { color: #e5484d; }
 </style>
 </head>
 <body>
   <h1>⚡ MTD Agent</h1>
   <div class="card" id="device"></div>
   <div class="card" id="plugins"></div>
+
+  <div class="card">
+    <div class="field">
+      <label for="token-input">Agent-token (mtd_agent_...)</label>
+      <input id="token-input" type="text" placeholder="mtd_agent_..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="token-password">Apparaatwachtwoord</label>
+      <input id="token-password" type="password" autocomplete="off">
+    </div>
+    <button class="btn" id="token-submit" onclick="submitToken()">Token opslaan</button>
+    <div class="status-msg" id="token-status"></div>
+  </div>
 
   <script>
     async function refresh() {
@@ -64,6 +86,45 @@
     }
     refresh();
     setInterval(refresh, 10000);
+
+    async function submitToken() {
+      const token = document.getElementById('token-input').value.trim();
+      const password = document.getElementById('token-password').value;
+      const statusEl = document.getElementById('token-status');
+      const btn = document.getElementById('token-submit');
+      statusEl.textContent = '';
+      statusEl.className = 'status-msg';
+
+      if (!token || !password) {
+        statusEl.textContent = 'Vul zowel token als wachtwoord in.';
+        statusEl.classList.add('error');
+        return;
+      }
+
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          statusEl.textContent = data.message || 'Token opgeslagen, agent herstart...';
+          statusEl.classList.add('ok');
+          document.getElementById('token-input').value = '';
+          document.getElementById('token-password').value = '';
+        } else {
+          statusEl.textContent = data.detail || 'Opslaan mislukt';
+          statusEl.classList.add('error');
+        }
+      } catch (e) {
+        statusEl.textContent = 'Verbindingsfout';
+        statusEl.classList.add('error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
   </script>
 </body>
 </html>

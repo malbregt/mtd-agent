@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core import database
+from core.env_file import write_agent_key
 
 STATIC_DIR = Path(__file__).parent / "static"
 _START_TIME = time.monotonic()
@@ -27,6 +28,11 @@ class PasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     device_id: str
+
+
+class TokenRequest(BaseModel):
+    password: str
+    token: str
 
 
 def _check_password(password: str) -> bool:
@@ -110,5 +116,20 @@ def build_app(agent) -> FastAPI:
         new_hash = bcrypt.hashpw(factory_password.encode(), bcrypt.gensalt()).decode()
         database.set_device_config("current_password_hash", new_hash)
         return {"ok": True}
+
+    @app.post("/api/token")
+    def api_token(body: TokenRequest):
+        """Werk het agent-token (AGENT_KEY) bij — voor als je het token op het
+        platform op de ouderwetse manier hebt gegenereerd en hier wilt
+        koppelen, of na een tokenrotatie. Herstart de agent-service zodat de
+        nieuwe waarde meteen gebruikt wordt."""
+        if not _check_password(body.password):
+            raise HTTPException(status_code=401, detail="Ongeldig wachtwoord")
+        token = body.token.strip()
+        if not token.startswith("mtd_agent_"):
+            raise HTTPException(status_code=422, detail="Token moet beginnen met 'mtd_agent_'")
+        write_agent_key(token)
+        subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-agent"])
+        return {"ok": True, "message": "Token opgeslagen, agent herstart..."}
 
     return app
