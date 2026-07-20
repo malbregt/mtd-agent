@@ -40,15 +40,13 @@
       <label for="token-input">Agent-token (mtd_agent_...)</label>
       <input id="token-input" type="text" placeholder="mtd_agent_..." autocomplete="off">
     </div>
-    <div class="field">
-      <label for="token-password">Apparaatwachtwoord</label>
-      <input id="token-password" type="password" autocomplete="off">
-    </div>
     <button class="btn" id="token-submit" onclick="submitToken()">Token opslaan</button>
     <div class="status-msg" id="token-status"></div>
   </div>
 
   <script>
+    let tokenPrefilled = false;
+
     async function refresh() {
       try {
         const [health, device] = await Promise.all([
@@ -63,6 +61,13 @@
             ' — werk het token hieronder bij.';
         } else {
           banner.style.display = 'none';
+        }
+
+        // Vult het tokenveld één keer met de huidige waarde (niet bij elke
+        // refresh, anders overschrijft dat wat de gebruiker aan het typen is).
+        if (!tokenPrefilled && device.agent_key) {
+          document.getElementById('token-input').value = device.agent_key;
+          tokenPrefilled = true;
         }
 
         document.getElementById('device').innerHTML = `
@@ -101,14 +106,13 @@
 
     async function submitToken() {
       const token = document.getElementById('token-input').value.trim();
-      const password = document.getElementById('token-password').value;
       const statusEl = document.getElementById('token-status');
       const btn = document.getElementById('token-submit');
       statusEl.textContent = '';
       statusEl.className = 'status-msg';
 
-      if (!token || !password) {
-        statusEl.textContent = 'Vul zowel token als wachtwoord in.';
+      if (!token) {
+        statusEl.textContent = 'Vul een token in.';
         statusEl.classList.add('error');
         return;
       }
@@ -118,14 +122,12 @@
         const resp = await fetch('/api/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, password }),
+          body: JSON.stringify({ token }),
         });
         const data = await resp.json();
         if (resp.ok) {
           statusEl.textContent = data.message || 'Token opgeslagen, agent herstart...';
           statusEl.classList.add('ok');
-          document.getElementById('token-input').value = '';
-          document.getElementById('token-password').value = '';
         } else {
           statusEl.textContent = data.detail || 'Opslaan mislukt';
           statusEl.classList.add('error');

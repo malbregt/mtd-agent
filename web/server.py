@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import config
 from core import database
 from core.env_file import write_agent_key
 
@@ -31,7 +32,6 @@ class ResetPasswordRequest(BaseModel):
 
 
 class TokenRequest(BaseModel):
-    password: str
     token: str
 
 
@@ -95,6 +95,7 @@ def build_app(agent) -> FastAPI:
             "agent_version": "2.0.0",
             "uptime_s": int(time.monotonic() - _START_TIME),
             "network_mode": database.get_device_config("network_mode", "lan"),
+            "agent_key": config.AGENT_KEY,
         }
 
     @app.post("/api/network")
@@ -130,9 +131,8 @@ def build_app(agent) -> FastAPI:
         """Werk het agent-token (AGENT_KEY) bij — voor als je het token op het
         platform op de ouderwetse manier hebt gegenereerd en hier wilt
         koppelen, of na een tokenrotatie. Herstart de agent-service zodat de
-        nieuwe waarde meteen gebruikt wordt."""
-        if not _check_password(body.password):
-            raise HTTPException(status_code=401, detail="Ongeldig wachtwoord")
+        nieuwe waarde meteen gebruikt wordt. (Nog geen wachtwoordbescherming —
+        komt later.)"""
         token = body.token.strip()
         if not token.startswith("mtd_agent_"):
             raise HTTPException(status_code=422, detail="Token moet beginnen met 'mtd_agent_'")
