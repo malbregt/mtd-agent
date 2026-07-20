@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import config
 from core import database
 from core.env_file import write_agent_key
+from core.version import get_agent_version
 
 STATIC_DIR = Path(__file__).parent / "static"
 _START_TIME = time.monotonic()
@@ -93,7 +94,7 @@ def build_app(agent) -> FastAPI:
     def api_device():
         return {
             "device_id": agent.device_id,
-            "agent_version": "2.0.0",
+            "agent_version": get_agent_version(),
             "uptime_s": int(time.monotonic() - _START_TIME),
             "network_mode": database.get_device_config("network_mode", "lan"),
             "agent_key": config.AGENT_KEY,

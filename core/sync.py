@@ -2,7 +2,11 @@ import asyncio
 import inspect
 import json
 import logging
+import os
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
 import aiohttp
 
@@ -11,10 +15,11 @@ from core import database
 from core.bus import Bus
 from core.health import HealthTracker
 from core.plugin import Reading
+from core.version import get_agent_version
 
 log = logging.getLogger("sync")
 
-AGENT_VERSION = "2.0.0"
+INSTALL_DIR = Path(__file__).resolve().parent.parent
 
 
 class SyncClient:
@@ -115,6 +120,31 @@ class SyncClient:
             # sturen — de agent moet die apart ophalen via GET /agent/config.
             log.info("config_update-signaal ontvangen, config opnieuw ophalen")
             await self._refetch_config()
+        elif msg.get("type") == "update":
+            # Legacy commandotype (geen "channel"-veld, zelfde als v1.0.26):
+            # platform vraagt om een OTA-update van de agent-kern zelf naar de
+            # opgegeven git-tag/versie (los van plugin-versies, zie
+            # core/plugin_download.py voor die kant).
+            version = msg.get("version")
+            log.warning("update-commando ontvangen: agent wordt bijgewerkt naar %s", version)
+            self._trigger_update(version)
+
+    def _trigger_update(self, version: str) -> None:
+        """Kopieert het update-script naar /tmp en voert het als losstaand
+        proces uit — het script doet zelf een `git checkout` in de working
+        tree waar dit script ORIGINEEL vandaan komt; als het in-place vanuit
+        die working tree bleef draaien, zou bash halverwege een mix van oude/
+        nieuwe scriptinhoud kunnen uitvoeren (bash leest scripts gebufferd
+        van schijf). Vanuit /tmp draaiend is het script zelf niet meer
+        onderdeel van wat git overschrijft."""
+        src = INSTALL_DIR / "scripts" / "update.sh"
+        tmp = Path("/tmp/mtd-agent-update.sh")
+        try:
+            shutil.copy(src, tmp)
+            os.chmod(tmp, 0o755)
+            subprocess.Popen(["bash", str(tmp), version], env=os.environ.copy())
+        except Exception as e:
+            log.error("kon update-script niet starten: %s", e)
 
     async def _refetch_config(self) -> None:
         if not self.on_config:
@@ -222,7 +252,7 @@ class SyncClient:
             plugins = self.health.snapshot()
             sent = await self._send({
                 "channel": "health",
-                "agent_version": AGENT_VERSION,
+                "agent_version": get_agent_version(),
                 "uptime_s": int(time.monotonic() - self._started_at),
                 "plugins": plugins,
             })
