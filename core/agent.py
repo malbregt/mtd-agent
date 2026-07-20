@@ -30,7 +30,7 @@ def _lan_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 2.0) 
         return False
 
 
-MAX_PROBE_BODY_CHARS = 20_000
+MAX_PROBE_BODY_CHARS = 200_000
 
 
 async def _run_probe(payload: dict) -> dict:
