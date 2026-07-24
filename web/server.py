@@ -2,7 +2,6 @@ import subprocess
 import time
 from pathlib import Path
 
-import bcrypt
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,30 +16,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 _START_TIME = time.monotonic()
 
 
-class NetworkRequest(BaseModel):
-    password: str
-    ssid: str
-    wifi_password: str
-
-
-class PasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-
-class ResetPasswordRequest(BaseModel):
-    device_id: str
-
-
 class TokenRequest(BaseModel):
     token: str
-
-
-def _check_password(password: str) -> bool:
-    stored_hash = database.get_device_config("current_password_hash")
-    if not stored_hash:
-        return False
-    return bcrypt.checkpw(password.encode(), stored_hash.encode())
 
 
 def build_app(agent) -> FastAPI:
@@ -100,41 +77,12 @@ def build_app(agent) -> FastAPI:
             "agent_key": config.AGENT_KEY,
         }
 
-    @app.post("/api/network")
-    def api_network(body: NetworkRequest):
-        if not _check_password(body.password):
-            raise HTTPException(status_code=401, detail="Ongeldig wachtwoord")
-        # Netwerkconfiguratie wijzigen (wpa_supplicant) is hardware-specifiek en
-        # wordt afgehandeld door onboarding/portal.py — hier alleen doorgeven.
-        from onboarding import portal
-        portal.apply_wifi_config(body.ssid, body.wifi_password)
-        return {"ok": True}
-
-    @app.post("/api/password")
-    def api_password(body: PasswordRequest):
-        if not _check_password(body.current_password):
-            raise HTTPException(status_code=401, detail="Ongeldig wachtwoord")
-        new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
-        database.set_device_config("current_password_hash", new_hash)
-        return {"ok": True}
-
-    @app.post("/api/reset-password")
-    def api_reset_password(body: ResetPasswordRequest):
-        device_id = database.get_device_config("device_id")
-        if body.device_id != device_id:
-            raise HTTPException(status_code=401, detail="Ongeldig device_id")
-        factory_password = database.get_device_config("factory_password")
-        new_hash = bcrypt.hashpw(factory_password.encode(), bcrypt.gensalt()).decode()
-        database.set_device_config("current_password_hash", new_hash)
-        return {"ok": True}
-
     @app.post("/api/token")
     def api_token(body: TokenRequest):
         """Werk het agent-token (AGENT_KEY) bij — voor als je het token op het
         platform op de ouderwetse manier hebt gegenereerd en hier wilt
         koppelen, of na een tokenrotatie. Herstart de agent-service zodat de
-        nieuwe waarde meteen gebruikt wordt. (Nog geen wachtwoordbescherming —
-        komt later.)"""
+        nieuwe waarde meteen gebruikt wordt."""
         token = body.token.strip()
         if not token.startswith("mtd_agent_"):
             raise HTTPException(status_code=422, detail="Token moet beginnen met 'mtd_agent_'")

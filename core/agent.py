@@ -3,7 +3,6 @@ import importlib.util
 import ipaddress
 import json
 import logging
-import secrets
 import socket
 import sys
 import time
@@ -11,7 +10,6 @@ import urllib.parse
 from pathlib import Path
 
 import aiohttp
-import bcrypt
 
 import config
 from core import database
@@ -24,34 +22,32 @@ from core.sync import SyncClient
 log = logging.getLogger("agent")
 
 
-def _ensure_factory_password() -> None:
-    """Genereert bij de eerste boot een fabriekswachtwoord — zonder dit is er
-    domweg niets om /api/password, /api/network, /api/token en
-    /api/reset-password tegen te controleren, dus die blijven anders voor
-    iedereen onbruikbaar. Wordt eenmalig gegenereerd en duidelijk gelogd
-    (blijft terug te vinden via journalctl); te wijzigen via /api/password,
-    en te resetten naar deze waarde via /api/reset-password."""
-    if database.get_device_config("current_password_hash"):
-        return
-    factory_password = secrets.token_hex(4)  # 8 leesbare hex-tekens
-    password_hash = bcrypt.hashpw(factory_password.encode(), bcrypt.gensalt()).decode()
-    database.set_device_config("factory_password", factory_password)
-    database.set_device_config("current_password_hash", password_hash)
-    log.warning("=" * 60)
-    log.warning("FABRIEKSWACHTWOORD (eenmalig getoond, bewaar dit): %s", factory_password)
-    log.warning("Gebruik dit wachtwoord bij /api/password, /api/network, /api/token")
-    log.warning("=" * 60)
-
-
-def _lan_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 2.0) -> bool:
-    try:
-        socket.create_connection((host, port), timeout=timeout).close()
-        return True
-    except OSError:
-        return False
-
-
 MAX_PROBE_BODY_CHARS = 200_000
+MAX_LOG_CHARS = 300_000
+
+
+async def _get_logs(payload: dict) -> dict:
+    """Haalt de laatste regels van de eigen systemd-journal op — on-demand
+    vanuit het adminportaal, pas nadat daar al een probleem is opgemerkt (bv.
+    een device dat offline gaat of een mislukte update). Bewust geen actieve
+    logmonitoring/streaming, alleen een snapshot bij navraag."""
+    lines = max(1, min(int(payload.get("lines") or 200), 2000))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "journalctl", "-u", "mtd-agent", "-n", str(lines), "--no-pager", "-o", "short-iso",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        if proc.returncode != 0:
+            return {"success": False, "error": stderr.decode(errors="replace")[:2000] or "journalctl gaf een foutcode terug"}
+        text_out = stdout.decode(errors="replace")
+        return {
+            "success": True,
+            "log": text_out[-MAX_LOG_CHARS:],
+            "truncated": len(text_out) > MAX_LOG_CHARS,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 async def _run_probe(payload: dict) -> dict:
@@ -156,12 +152,6 @@ class Agent:
     async def bootstrap(self) -> None:
         database.init_db()
         self.device_id = database.get_device_config("device_id")
-        _ensure_factory_password()
-
-        if not _lan_available():
-            log.warning("geen LAN beschikbaar — start hotspot/captive portal")
-            from onboarding import portal
-            await portal.start_hotspot()
 
         installed = database.load_installed_plugins()
         for row in installed:
@@ -303,6 +293,12 @@ class Agent:
 
         if action == "probe":
             result = await _run_probe(msg.get("payload") or {})
+            database.log_command(command_id, plugin_id, action, json.dumps(msg.get("payload", {})),
+                                  "executed" if result.get("success") else "failed")
+            return result
+
+        if action == "get_logs":
+            result = await _get_logs(msg.get("payload") or {})
             database.log_command(command_id, plugin_id, action, json.dumps(msg.get("payload", {})),
                                   "executed" if result.get("success") else "failed")
             return result

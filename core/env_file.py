@@ -1,9 +1,9 @@
 """
 Beheert /etc/mtd-agent/env — het bestand waar systemd (via EnvironmentFile=)
 AGENT_KEY/PLATFORM_WS_URL/etc. uit leest. Los van de git-working-tree in
-/opt/mtd-agent, dus overleeft een `git pull` + herstart. Gedeeld door
-onboarding/portal.py (eerste keer, tijdens hotspot-onboarding) en
-web/server.py (later bijwerken via de lokale statuspagina)."""
+/opt/mtd-agent, dus overleeft een `git pull` + herstart. Wordt geschreven
+door install.sh (eerste keer) en web/server.py (later bijwerken via de
+lokale statuspagina)."""
 import os
 
 ENV_FILE = "/etc/mtd-agent/env"

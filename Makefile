@@ -6,7 +6,7 @@ run:
 install:
 	python -m venv venv
 	./venv/bin/pip install -r requirements.txt
-	sudo cp systemd/mtd-agent.service systemd/mtd-portal.service /etc/systemd/system/
+	sudo cp systemd/mtd-agent.service /etc/systemd/system/
 	sudo systemctl daemon-reload
 	sudo systemctl enable mtd-agent
 

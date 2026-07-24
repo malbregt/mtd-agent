@@ -1,7 +1,7 @@
 #!/bin/bash
-# Eén-commando installatie voor een bekend/geprovisioneerd device (device-id en
-# agent-token zijn al bekend bij het platform) — slaat de hotspot/captive-portal
-# onboarding-flow bewust over, want die is voor onbekende consumentenapparaten.
+# Eén-commando installatie: geen onboarding-flow, geen aparte portal-service —
+# device-id en agent-token zijn al bekend bij het platform, dus dit script
+# installeert en start de agent direct.
 #
 # Gebruik (op de Pi, als root/via sudo) — --device-id is optioneel/informatief,
 # het platform herleidt het device zelf uit --agent-key:
@@ -68,8 +68,8 @@ echo "[4/6] Python-omgeving aanmaken (venv, deps)..."
 python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
 
-echo "[5/6] Systemd-units installeren, device-config en plugin registreren..."
-cp "$INSTALL_DIR/systemd/mtd-agent.service" "$INSTALL_DIR/systemd/mtd-portal.service" /etc/systemd/system/
+echo "[5/6] Systemd-unit installeren, device-config en plugin registreren..."
+cp "$INSTALL_DIR/systemd/mtd-agent.service" /etc/systemd/system/
 systemctl daemon-reload
 
 # Via environment-variabelen doorgeven aan Python i.p.v. shell-string-interpolatie
@@ -106,8 +106,6 @@ PYEOF
 echo "[6/6] Agent starten..."
 systemctl enable mtd-agent
 systemctl restart mtd-agent
-systemctl disable mtd-portal 2>/dev/null || true
-systemctl stop mtd-portal 2>/dev/null || true
 
 echo ""
 echo "Klaar. Status:  sudo systemctl status mtd-agent"

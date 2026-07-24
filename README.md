@@ -4,78 +4,56 @@ Edge agent voor het [mijnthuisdata](https://mijnthuisdata.nl) platform. Draait o
 
 ## Installatie
 
-Op een verse Raspberry Pi OS Lite installatie:
+Op een verse Raspberry Pi OS Lite installatie, met een device-id en agent-token die het platform al heeft uitgegeven:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/malbregt/mtd-agent/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
+  | sudo bash -s -- \
+      --agent-key mtd_agent_xxxxxxxx \
+      --plugin p1_serial \
+      --plugin-config '{"port":"/dev/ttyUSB0","baudrate":115200,"collect_interval_s":10}'
 ```
 
-**Eerste installatie:** de Pi start automatisch een hotspot `MTD-Setup`. Verbind hiermee en configureer het apparaat via de captive portal.
+Dit installeert de agent, schrijft het token weg en start de service direct — geen aparte onboarding-stap. Ontbreekt het token nog (of is het gewijzigd), dan is dat achteraf in te vullen via de lokale statuspagina (`http://<pi-ip>:8080`), via het veld "Agent-token" — dit herstart de service automatisch met de nieuwe waarde.
 
-**Update:** het script detecteert een bestaande installatie. `mtd-worker` (integraties/sync) wordt altijd herstart; `mtd-core` (heartbeat/WebSocket/OTA/statuspagina) alleen als de update ook core-bestanden wijzigt — zo blijft de statuspagina bij een gewone integratie-fix gewoon bereikbaar.
-
-## Onboarding
-
-1. Pi opgestart → hotspot `MTD-Setup` verschijnt
-2. Verbind met `MTD-Setup` (geen wachtwoord)
-3. Captive portal opent automatisch (of ga naar `192.168.4.1`)
-4. Kies methode: API Key / Inloggen / QR Code
-5. Vul eventueel WiFi netwerk in
-6. Klik "Apparaat koppelen"
-7. Pi herstart en verbindt met het platform
+**Update:** `scripts/update.sh` wordt door het platform op afstand getriggerd (via `core/sync.py`) en checkt uit naar de opgegeven git-tag, met een sanity-check en automatische terugval naar de vorige versie bij een mislukte update.
 
 ## Structuur
 
 ```
 mtd-agent/
-├── install.sh                    # Bootstrap script
+├── install.sh                    # Eén-commando installatie (device-id/token al bekend bij platform)
+├── main.py                       # Entrypoint: bootstrap agent + lokale webserver
+├── config.py                     # Config (env-variabelen)
 ├── requirements.txt
-├── config.example.json
-├── agent/
-│   ├── core.py                   # mtd-core: heartbeat, WebSocket, OTA, statuspagina
-│   ├── worker.py                 # mtd-worker: integraties laden/pollen/syncen
-│   ├── version.py                # Gedeelde VERSION-constante
-│   ├── signals.py                # Lokale signaal-queue core → worker
-│   ├── state.py                  # Gedeeld state-bestand worker → core
-│   ├── status_server.py          # Lokale statuspagina (draait binnen mtd-core)
-│   ├── config.py                 # Config manager
-│   ├── api.py                    # Platform API client
-│   ├── sync.py                   # SQLite cache + sync
-│   ├── websocket_client.py       # WebSocket voor config push
-│   ├── plugin_manager.py         # Dynamisch laden van plugins
-│   └── integrations/
-│       ├── base.py               # BaseIntegration
-│       ├── homewizard_p1.py      # HomeWizard P1 plugin
-│       ├── homewizard_water.py   # HomeWizard Watermeter plugin
-│       ├── p1_serial.py          # P1-poort via USB-kabel (zonder HomeWizard)
-│       └── enphase.py            # Enphase Envoy plugin
-├── captive_portal/
-│   ├── portal.py                 # Flask onboarding portal
-│   └── templates/
-│       └── index.html            # Portal UI
+├── core/
+│   ├── agent.py                  # Bootstrap, plugin-lifecycle, config-push, commands
+│   ├── database.py                # SQLite: device-config, plugins, readings
+│   ├── env_file.py                # Schrijft AGENT_KEY naar /etc/mtd-agent/env
+│   ├── plugin.py                  # DevicePlugin/Reading/Command basisklassen
+│   ├── plugin_download.py         # OTA-download van losse plugins (GitHub)
+│   ├── supervisor.py              # Start/stop/herstart van plugin-taken
+│   ├── sync.py                    # WebSocket-verbinding met het platform
+│   └── health.py                  # Status per plugin (voor statuspagina)
+├── plugins/                       # Vendored plugins (HomeWizard, SolarEdge, Enphase, ...)
+├── web/
+│   ├── server.py                  # Lokale FastAPI-statuspagina + /api/token
+│   └── static/                    # Statuspagina UI (zie screenshot in het beheerpaneel)
 ├── systemd/
-│   ├── mtd-core.service          # Core service (altijd actief)
-│   ├── mtd-worker.service        # Worker service (integraties)
-│   └── mtd-portal.service        # Portal service (alleen bij eerste setup)
+│   └── mtd-agent.service          # Enige service — geen aparte onboarding/portal-service meer
 └── scripts/
-    ├── provision.sh              # Eigenlijke installatie-/update-logica (door install.sh aangeroepen als nieuw proces)
-    └── setup-hotspot.sh          # WiFi hotspot instellen
+    └── update.sh                  # OTA core-update, op afstand getriggerd door het platform
 ```
-
-**Waarom install.sh + scripts/provision.sh gescheiden zijn:** `install.sh` haalt alleen de code op (git checkout) en roept daarna `scripts/provision.sh` aan als nieuw proces. Dat voorkomt dat `install.sh` zichzelf tijdens de checkout overschrijft terwijl bash het nog aan het uitvoeren is (een klassieke valkuil bij self-updating scripts, die tot een gedeeltelijk/gemengd uitgevoerd script kan leiden).
 
 ## Plugins
 
-Plugins worden dynamisch geladen op basis van de config van het platform. Bij een nieuw apparaattype downloadt de Pi automatisch de benodigde plugin van GitHub.
+Plugins worden dynamisch geladen op basis van de config die het platform pusht. Bij een nieuwe/gewijzigde plugin-versie downloadt de Pi automatisch de benodigde bestanden van GitHub.
 
-Elke plugin erft van `BaseIntegration` en implementeert de `poll()` methode.
+Elke plugin erft van `DevicePlugin` (`core/plugin.py`) en implementeert `poll()`.
 
 ## Beheer
 
 ```bash
-sudo systemctl status mtd-core mtd-worker
-sudo journalctl -u mtd-core -f    # heartbeat, WebSocket, OTA, statuspagina
-sudo journalctl -u mtd-worker -f  # integraties, sync
-sudo systemctl restart mtd-core
-sudo systemctl restart mtd-worker
+sudo systemctl status mtd-agent
+sudo journalctl -u mtd-agent -f
 ```
