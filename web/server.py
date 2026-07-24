@@ -14,6 +14,25 @@ from core.version import get_agent_version
 
 STATIC_DIR = Path(__file__).parent / "static"
 _START_TIME = time.monotonic()
+_pi_serial_cache: str | None = None
+
+
+def _pi_serial() -> str | None:
+    """Uniek hardware-serienummer van de Pi zelf (uit /proc/cpuinfo) — anders
+    dan agent.device_id (het platform-ID) blijft dit altijd beschikbaar, ook
+    vóórdat een device aan het platform gekoppeld is."""
+    global _pi_serial_cache
+    if _pi_serial_cache is not None:
+        return _pi_serial_cache
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("Serial"):
+                    _pi_serial_cache = line.split(":", 1)[1].strip()
+                    return _pi_serial_cache
+    except OSError:
+        pass
+    return None
 
 
 class TokenRequest(BaseModel):
@@ -70,7 +89,7 @@ def build_app(agent) -> FastAPI:
     @app.get("/api/device")
     def api_device():
         return {
-            "device_id": agent.device_id,
+            "device_id": agent.device_id or _pi_serial(),
             "agent_version": get_agent_version(),
             "uptime_s": int(time.monotonic() - _START_TIME),
             "network_mode": database.get_device_config("network_mode", "lan"),
