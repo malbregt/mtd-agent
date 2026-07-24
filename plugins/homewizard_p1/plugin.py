@@ -26,7 +26,10 @@ class HomewizardP1Plugin(DevicePlugin):
             raise RuntimeError("Geen host geconfigureerd voor HomeWizard")
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{host}/api/v1/data", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            # 10s i.p.v. 5s: een HomeWizard P1 onder hoge lokale netwerklast reageert
+            # soms trager dan 5s, wat een collect-cyclus onnodig als mislukt liet
+            # tellen (zie plugin_id in de agent-logs bij herhaalde timeouts).
+            async with session.get(f"{host}/api/v1/data", timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
 
