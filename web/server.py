@@ -1,3 +1,6 @@
+import ipaddress
+import re
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -31,6 +34,37 @@ def _pi_serial() -> str | None:
                     _pi_serial_cache = line.split(":", 1)[1].strip()
                     return _pi_serial_cache
     except OSError:
+        pass
+    return None
+
+
+def _local_ip() -> str | None:
+    """Lokaal LAN-IP zonder daadwerkelijk iets te versturen — de socket wordt
+    nooit verbonden, dit laat het OS alleen de uitgaande interface/route voor
+    8.8.8.8 kiezen zodat we het bijbehorende lokale adres kunnen aflezen."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def _subnet_mask(ip: str | None) -> str | None:
+    """Subnetmasker van de interface die `ip` heeft, via `ip -o -4 addr show`
+    (standaard aanwezig op Raspberry Pi OS)."""
+    if not ip:
+        return None
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show"],
+            capture_output=True, text=True, timeout=3,
+        )
+        for line in result.stdout.splitlines():
+            match = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", line)
+            if match and match.group(1) == ip:
+                return str(ipaddress.IPv4Network(f"0.0.0.0/{match.group(2)}").netmask)
+    except (OSError, subprocess.SubprocessError):
         pass
     return None
 
@@ -88,12 +122,15 @@ def build_app(agent) -> FastAPI:
 
     @app.get("/api/device")
     def api_device():
+        local_ip = _local_ip()
         return {
             "device_id": agent.device_id or _pi_serial(),
             "agent_version": get_agent_version(),
             "uptime_s": int(time.monotonic() - _START_TIME),
             "network_mode": database.get_device_config("network_mode", "lan"),
             "agent_key": config.AGENT_KEY,
+            "local_ip": local_ip,
+            "subnet_mask": _subnet_mask(local_ip),
         }
 
     @app.post("/api/token")
