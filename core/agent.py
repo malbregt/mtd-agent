@@ -189,6 +189,13 @@ class Agent:
                 vendored_version = _read_manifest_version(plugin_id)
                 if vendored_version:
                     database.upsert_plugin(plugin_id, installed_version=vendored_version)
+        except FileNotFoundError:
+            # Veelvoorkomend, verwacht geval (niet vendored op deze agent-versie
+            # en nog nooit via OTA gedownload) — een volledige traceback erbij
+            # voegt niets toe en maakt de logs onnodig lastig te lezen.
+            log.warning("kon plugin %s niet starten: plugin.py ontbreekt lokaal "
+                        "(nog niet vendored/gedownload)", plugin_id)
+            database.upsert_plugin(plugin_id, status="failed")
         except Exception:
             log.exception("kon plugin %s niet starten", plugin_id)
             database.upsert_plugin(plugin_id, status="failed")
