@@ -182,8 +182,20 @@ class SyncClient:
         request_id = msg.get("request_id")
         integration_id = msg.get("integration_id", "")
         test_config = msg.get("config") or {}
+        target_version = msg.get("target_version")
         start = time.monotonic()
         try:
+            # Nieuwe integratie: de plugin staat mogelijk nog niet lokaal (niet
+            # vendored, nog nooit gedownload). Download hem gericht op basis van
+            # de versie/checksum die de backend meestuurt, i.p.v. te wachten op
+            # de volgende config-sync (zie _on_config_push voor dezelfde flow).
+            if target_version and database.get_installed_version(integration_id) != target_version:
+                from core.plugin_download import ensure_plugin_version
+                if await ensure_plugin_version(integration_id, target_version, msg.get("target_sha256")):
+                    database.upsert_plugin(integration_id, installed_version=target_version)
+                else:
+                    log.warning("plugin %s: download van versie %s mislukt vóór test", integration_id, target_version)
+
             plugin_cls = _load_plugin_class(integration_id)
             test_fn = plugin_cls.test_connection
             if inspect.iscoroutinefunction(test_fn):
