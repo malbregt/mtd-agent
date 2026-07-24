@@ -227,11 +227,25 @@ class Agent:
 
             if target_version and enabled and database.get_installed_version(plugin_id) != target_version:
                 from core.plugin_download import ensure_plugin_version
-                if await ensure_plugin_version(plugin_id, target_version, plugin.get("target_sha256")):
+                ok = await ensure_plugin_version(plugin_id, target_version, plugin.get("target_sha256"))
+                if ok:
                     database.upsert_plugin(plugin_id, installed_version=target_version)
                 else:
                     log.warning("plugin %s: download van versie %s mislukt, blijf op huidige versie draaien",
                                 plugin_id, target_version)
+                # Meld het resultaat terug aan het platform — zonder dit weet het
+                # platform nooit of een plugin-download is gelukt (in tegenstelling
+                # tot core-updates, die via /update-result + heartbeat gemeld worden).
+                customer_integration_id = plugin.get("id")
+                if customer_integration_id and self.sync:
+                    await self.sync._send({
+                        "channel": "plugin_update_result",
+                        "customer_integration_id": customer_integration_id,
+                        "plugin_id": plugin_id,
+                        "version": target_version,
+                        "success": ok,
+                        "error": None if ok else "download/checksum mislukt",
+                    })
 
             database.upsert_plugin(
                 plugin_id,
