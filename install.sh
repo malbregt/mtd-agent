@@ -4,7 +4,9 @@
 # installeert en start de agent direct.
 #
 # Gebruik (op de Pi, als root/via sudo) — --device-id is optioneel/informatief,
-# het platform herleidt het device zelf uit --agent-key:
+# het platform herleidt het device zelf uit --agent-key. --hostname is
+# optioneel (default: mtd-bridge, bereikbaar als mtd-bridge.local) — geef 'm
+# expliciet mee als er meerdere bridges op hetzelfde netwerk komen:
 #   curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
 #     | sudo bash -s -- \
 #         --agent-key mtd_agent_xxxxxxxx \
@@ -21,6 +23,10 @@ DEVICE_ID=""
 AGENT_KEY=""
 PLUGIN_ID=""
 PLUGIN_CONFIG="{}"
+# Standaard hostname, bereikbaar als mtd-bridge.local via mDNS (avahi) — bij
+# meerdere bridges op hetzelfde netwerk moet je --hostname meegeven, anders
+# botsen ze op dezelfde .local-naam.
+HOSTNAME_VALUE="mtd-bridge"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,6 +36,7 @@ while [ $# -gt 0 ]; do
     --agent-key) AGENT_KEY="$2"; shift 2 ;;
     --plugin) PLUGIN_ID="$2"; shift 2 ;;
     --plugin-config) PLUGIN_CONFIG="$2"; shift 2 ;;
+    --hostname) HOSTNAME_VALUE="$2"; shift 2 ;;
     *) echo "Onbekende optie: $1"; exit 1 ;;
   esac
 done
@@ -41,11 +48,21 @@ fi
 
 echo "=== MTD Agent — automatische installatie ==="
 
-echo "[1/6] Systeempakketten..."
+echo "[1/7] Systeempakketten..."
 apt-get update -qq
-apt-get install -y -qq git python3 python3-venv python3-pip
+apt-get install -y -qq git python3 python3-venv python3-pip avahi-daemon
 
-echo "[2/6] Repo ophalen (branch: $BRANCH)..."
+echo "[2/7] Hostname instellen ($HOSTNAME_VALUE.local)..."
+if [ "$(hostname)" != "$HOSTNAME_VALUE" ]; then
+  hostnamectl set-hostname "$HOSTNAME_VALUE"
+  sed -i "s/127\.0\.1\.1.*/127.0.1.1\t$HOSTNAME_VALUE/" /etc/hosts
+  if ! grep -q "127\.0\.1\.1" /etc/hosts; then
+    echo -e "127.0.1.1\t$HOSTNAME_VALUE" >> /etc/hosts
+  fi
+  systemctl restart avahi-daemon 2>/dev/null || true
+fi
+
+echo "[3/7] Repo ophalen (branch: $BRANCH)..."
 if [ -d "$INSTALL_DIR/.git" ]; then
   git -C "$INSTALL_DIR" fetch origin "$BRANCH"
   git -C "$INSTALL_DIR" checkout "$BRANCH"
@@ -56,7 +73,7 @@ fi
 
 mkdir -p /data /etc/mtd-agent
 
-echo "[3/6] Agent-token wegschrijven..."
+echo "[4/7] Agent-token wegschrijven..."
 cat > /etc/mtd-agent/env <<EOF
 AGENT_KEY=$AGENT_KEY
 DB_PATH=/data/agent.db
@@ -64,11 +81,11 @@ PLUGIN_DIR=/data/plugins
 EOF
 chmod 600 /etc/mtd-agent/env
 
-echo "[4/6] Python-omgeving aanmaken (venv, deps)..."
+echo "[5/7] Python-omgeving aanmaken (venv, deps)..."
 python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
 
-echo "[5/6] Systemd-unit installeren, device-config en plugin registreren..."
+echo "[6/7] Systemd-unit installeren, device-config en plugin registreren..."
 cp "$INSTALL_DIR/systemd/mtd-agent.service" /etc/systemd/system/
 systemctl daemon-reload
 
@@ -103,11 +120,11 @@ if plugin_id:
 print("device_config + agent_plugins ingevuld")
 PYEOF
 
-echo "[6/6] Agent starten..."
+echo "[7/7] Agent starten..."
 systemctl enable mtd-agent
 systemctl restart mtd-agent
 
 echo ""
 echo "Klaar. Status:  sudo systemctl status mtd-agent"
 echo "        Logs:   sudo journalctl -u mtd-agent -f"
-echo "        Lokale statuspagina: http://$(hostname -I | awk '{print $1}'):8080"
+echo "        Lokale statuspagina: http://$HOSTNAME_VALUE.local:8080 (of http://$(hostname -I | awk '{print $1}'):8080)"

@@ -49,24 +49,19 @@
   h1 {
     font-size: 1.05rem;
     font-weight: 700;
-    margin: 0 0 0.5rem;
+    margin: 0 0 0.75rem;
     display: flex;
     align-items: center;
     gap: 0.65rem;
   }
-  /* De wordmark-SVG gebruikt vaste merkkleuren (incl. donkere tekst) en is dus
-     niet zelf theme-aware — een lichte achtergrondplaat houdt 'm leesbaar,
-     ongeacht of de pagina in light of dark staat. */
-  .logo-badge {
-    background: #ffffff;
-    border-radius: 8px;
-    padding: 0.3rem 0.5rem;
-    display: inline-flex;
-    align-items: center;
-    line-height: 0;
+  .logo-badge { display: inline-flex; align-items: center; line-height: 0; }
+  .logo-badge svg { height: 56px; width: auto; display: block; }
+  /* De wordmark-SVG gebruikt een vaste donkere kleur voor de tekstvormen
+     (.mtd-cls-3), die anders onleesbaar wordt tegen een donkere achtergrond
+     — in dark mode overschrijven we 'm naar de lichte voorgrondkleur. */
+  @media (prefers-color-scheme: dark) {
+    .logo-badge svg .mtd-cls-3 { fill: var(--fg); }
   }
-  .logo-badge svg { height: 20px; width: auto; display: block; }
-  h1 .agent-label { color: var(--muted); font-weight: 600; }
   .card {
     background: var(--card);
     border: 1px solid var(--card-border);
@@ -159,7 +154,6 @@
           </g>
         </svg>
       </span>
-      <span class="agent-label">Bridge</span>
     </h1>
     <div class="banner" id="auth-banner"></div>
 
