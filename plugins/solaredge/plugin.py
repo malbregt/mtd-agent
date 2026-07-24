@@ -23,6 +23,47 @@ def _strip_protocol(host: str) -> str:
     return host.rstrip("/")
 
 
+def _status_message_to_dict(status) -> dict:
+    """Zet de geparste protobuf Status-message om naar een plain dict, zodat
+    de rest van dit bestand protobuf-onafhankelijk blijft (zelfde aanpak als
+    app/integrations/solaredge.py::_status_message_to_dict in de hoofd-app)."""
+    return {
+        "powerWatt": status.powerWatt,
+        "energy": {
+            "today": status.energy.today,
+            "thisMonth": status.energy.thisMonth,
+            "thisYear": status.energy.thisYear,
+            "total": status.energy.total,
+        },
+        "voltage": status.voltage,
+        "frequencyHz": status.frequencyHz,
+        "status": status.status,
+        "inverters": {
+            "primary": {
+                "voltage": status.inverters.primary.voltage,
+                "mode": status.inverters.primary.mode,
+                "temperature": {"value": status.inverters.primary.temperature.value},
+            },
+        },
+        "metersList": [
+            {"currentPower": m.currentPower, "totalEnergy": m.totalEnergy}
+            for m in status.metersList
+        ],
+    }
+
+
+def _get_local_api(host: str):
+    # ProtocolBuffersConverter moet expliciet als converter geregistreerd
+    # worden — de solaredge_local.SolarEdge-klasse doet dit zelf niet (in
+    # tegenstelling tot wat de package-documentatie suggereert), waardoor
+    # get_status()/get_maintenance() zonder deze regel een rauw uplink
+    # Response-object teruggeven i.p.v. een geparste protobuf-message.
+    from solaredge_local import SolarEdge
+    from uplink_protobuf import ProtocolBuffersConverter
+
+    return SolarEdge(f"http://{_strip_protocol(host)}", converters=(ProtocolBuffersConverter(),))
+
+
 class SolaredgePlugin(DevicePlugin):
     def __init__(self, device_id: str, config: dict):
         super().__init__(device_id, config)
@@ -33,16 +74,20 @@ class SolaredgePlugin(DevicePlugin):
         return "solaredge"
 
     def _read_blocking(self, host: str) -> dict:
-        from solaredge_local import SolarEdge
+        from google.protobuf.json_format import MessageToDict
 
-        api = SolarEdge(f"http://{_strip_protocol(host)}")
+        api = _get_local_api(host)
         status = api.get_status()
         try:
-            maintenance = api.get_maintenance()
+            # MessageToDict i.p.v. handmatige veld-mapping (zoals bij status)
+            # omdat _normalize() alleen een klein, optioneel deel van dit
+            # bericht leest (diagnostics.optimizer.*) — niet de moeite waard
+            # om elk protobuf-veld hier expliciet uit te schrijven.
+            maintenance = MessageToDict(api.get_maintenance())
         except Exception as e:
             log.warning("SolarEdge lokaal: get_maintenance() mislukt, ga door zonder optimizer-data: %s", e)
             maintenance = None
-        return {"status": status, "maintenance": maintenance}
+        return {"status": _status_message_to_dict(status), "maintenance": maintenance}
 
     async def collect(self) -> list[Reading]:
         import requests
@@ -136,9 +181,8 @@ class SolaredgePlugin(DevicePlugin):
         import functools
 
         def _check():
-            from solaredge_local import SolarEdge
-            api = SolarEdge(f"http://{_strip_protocol(host)}")
-            return api.get_status()
+            api = _get_local_api(host)
+            return _status_message_to_dict(api.get_status())
 
         loop = asyncio.get_running_loop()
         status = await loop.run_in_executor(None, functools.partial(_check))
