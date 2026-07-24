@@ -41,7 +41,6 @@ def _status_message_to_dict(status) -> dict:
         "inverters": {
             "primary": {
                 "voltage": status.inverters.primary.voltage,
-                "mode": status.inverters.primary.mode,
                 "temperature": {"value": status.inverters.primary.temperature.value},
             },
         },
