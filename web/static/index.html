@@ -110,6 +110,20 @@
     font-size: 0.82rem;
   }
   .field input:focus { outline: none; border-color: var(--primary); }
+  .input-with-action { display: flex; gap: 0.5rem; }
+  .input-with-action input { flex: 1; min-width: 0; }
+  .input-action-btn {
+    background: var(--card-border);
+    color: var(--fg);
+    border: none;
+    border-radius: var(--radius-control);
+    padding: 0 0.9rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .input-action-btn:hover { filter: brightness(1.08); }
   .btn {
     background: var(--primary);
     color: #fff;
@@ -214,7 +228,10 @@
       <p class="card-title">Agent-token</p>
       <div class="field">
         <label for="token-input">mtd_agent_...</label>
-        <input id="token-input" type="text" placeholder="mtd_agent_..." autocomplete="off">
+        <div class="input-with-action">
+          <input id="token-input" type="text" placeholder="mtd_agent_..." autocomplete="off" onfocus="revealToken()">
+          <button type="button" class="input-action-btn" id="token-toggle" onclick="toggleTokenVisibility()">Toon</button>
+        </div>
       </div>
       <button class="btn" id="token-submit" onclick="submitToken()">Token opslaan</button>
       <div class="status-msg" id="token-status"></div>
@@ -223,6 +240,25 @@
 
   <script>
     let tokenPrefilled = false;
+    let realToken = '';
+    let tokenRevealed = false;
+
+    function maskToken(token) {
+      if (!token) return '';
+      return token.startsWith('mtd_agent_') ? 'mtd_agent_' + '•'.repeat(10) : '•'.repeat(Math.min(token.length, 12));
+    }
+
+    function toggleTokenVisibility() {
+      const input = document.getElementById('token-input');
+      const btn = document.getElementById('token-toggle');
+      tokenRevealed = !tokenRevealed;
+      input.value = tokenRevealed ? realToken : maskToken(realToken);
+      btn.textContent = tokenRevealed ? 'Verberg' : 'Toon';
+    }
+
+    function revealToken() {
+      if (!tokenRevealed) toggleTokenVisibility();
+    }
 
     function formatTimestamp(iso) {
       if (!iso) return null;
@@ -251,9 +287,11 @@
         }
 
         // Vult het tokenveld één keer met de huidige waarde (niet bij elke
-        // refresh, anders overschrijft dat wat de gebruiker aan het typen is).
+        // refresh, anders overschrijft dat wat de gebruiker aan het typen is)
+        // en toont 'm standaard gemaskeerd (prefix zichtbaar, rest verborgen).
         if (!tokenPrefilled && device.agent_key) {
-          document.getElementById('token-input').value = device.agent_key;
+          realToken = device.agent_key;
+          document.getElementById('token-input').value = maskToken(realToken);
           tokenPrefilled = true;
         }
 
@@ -308,6 +346,14 @@
     }
     refresh();
     setInterval(refresh, 10000);
+
+    function toggleTokenVisibility() {
+      const input = document.getElementById('token-input');
+      const btn = document.getElementById('token-toggle');
+      const hidden = input.type === 'password';
+      input.type = hidden ? 'text' : 'password';
+      btn.textContent = hidden ? 'Verberg' : 'Toon';
+    }
 
     async function submitToken() {
       const token = document.getElementById('token-input').value.trim();
