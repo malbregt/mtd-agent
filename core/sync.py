@@ -45,6 +45,19 @@ class SyncClient:
         self.auth_error: str | None = None
 
     async def run(self) -> None:
+        # Zonder token is elke verbindingspoging (WS + config/health-flushes)
+        # gegarandeerd zinloos en genereert alleen ruis in de logs (elke 10s
+        # een "verbinding mislukt"-warning) — wacht rustig tot er via de
+        # lokale statuspagina een token is opgeslagen. api_token() herstart
+        # de service na het opslaan, dus deze wachtlus is vooral een
+        # vangnet; hij zorgt er ook voor dat het opstarten zonder token geen
+        # foutmeldingen laat zien.
+        if not config.AGENT_KEY:
+            log.info("geen agent-token geconfigureerd — platformverbinding wordt overgeslagen tot er een token is opgeslagen via de lokale statuspagina")
+            while not config.AGENT_KEY:
+                await asyncio.sleep(5)
+            log.info("agent-token gevonden, platformverbinding wordt gestart")
+
         await asyncio.gather(
             self._connection_loop(),
             self._readings_flush_loop(),
