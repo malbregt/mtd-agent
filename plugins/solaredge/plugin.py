@@ -120,7 +120,7 @@ class SolaredgePlugin(DevicePlugin):
             if value is not None:
                 readings.append(Reading(
                     device_id=self.device_id, metric=metric, value=float(value),
-                    unit=unit, timestamp=timestamp, source="solaredge_local", direction=direction,
+                    unit=unit, timestamp=timestamp, source=self.plugin_id, direction=direction,
                 ))
 
         energy = status.get("energy", {})
