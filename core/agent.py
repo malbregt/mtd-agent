@@ -50,6 +50,22 @@ async def _get_logs(payload: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+async def _check_local_only(hostname: str, port: int) -> tuple[bool, str | None]:
+    """Herleidt hostname naar IP('s) en weigert publieke adressen — gedeelde
+    SSRF-guard voor zowel _run_probe als _run_ping."""
+    try:
+        loop = asyncio.get_running_loop()
+        addr_info = await loop.getaddrinfo(hostname, port)
+        for family, _, _, _, sockaddr in addr_info:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+                return False, (f"Alleen lokaal netwerk toegestaan, {ip} is publiek "
+                                f"(vink 'publiek internet toestaan' aan om dit te overrulen)")
+    except socket.gaierror as e:
+        return False, f"Kan hostnaam niet herleiden: {e}"
+    return True, None
+
+
 async def _run_probe(payload: dict) -> dict:
     """Voert een generieke HTTP-aanroep uit vanaf de Pi zelf, voor een admin
     die vanuit het portaal wil uitproberen wat een nog-onbekend apparaat
@@ -72,16 +88,9 @@ async def _run_probe(payload: dict) -> dict:
         return {"success": False, "error": "Ongeldige of ontbrekende URL/methode"}
 
     if not allow_public:
-        try:
-            loop = asyncio.get_running_loop()
-            addr_info = await loop.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
-            for family, _, _, _, sockaddr in addr_info:
-                ip = ipaddress.ip_address(sockaddr[0])
-                if not (ip.is_private or ip.is_loopback or ip.is_link_local):
-                    return {"success": False, "error": f"Alleen lokaal netwerk toegestaan, {ip} is publiek "
-                                                          f"(vink 'publiek internet toestaan' aan om dit te overrulen)"}
-        except socket.gaierror as e:
-            return {"success": False, "error": f"Kan hostnaam niet herleiden: {e}"}
+        ok, err = await _check_local_only(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        if not ok:
+            return {"success": False, "error": err}
 
     start = time.monotonic()
     try:
@@ -102,6 +111,38 @@ async def _run_probe(payload: dict) -> dict:
                     "truncated": len(text_body) > MAX_PROBE_BODY_CHARS,
                     "elapsed_ms": int((time.monotonic() - start) * 1000),
                 }
+    except Exception as e:
+        return {"success": False, "error": str(e), "elapsed_ms": int((time.monotonic() - start) * 1000)}
+
+
+async def _run_ping(payload: dict) -> dict:
+    """TCP-connect-test naar host:port vanaf de Pi — een lichtgewicht
+    "leeft dit apparaat" check, voor devices zonder bekend HTTP-pad of als
+    eerste stap vóór een echte probe. Geen ICMP (vereist raw sockets/root op
+    de Pi); een geslaagde TCP-handshake is voor dit doel voldoende. Zelfde
+    lokaal-netwerk-restrictie als _run_probe."""
+    host = (payload.get("host") or "").strip()
+    port = int(payload.get("port") or 80)
+    timeout_s = min(float(payload.get("timeout_s") or 5), 30)
+    allow_public = bool(payload.get("allow_public"))
+
+    if not host:
+        return {"success": False, "error": "Ontbrekend host"}
+
+    if not allow_public:
+        ok, err = await _check_local_only(host, port)
+        if not ok:
+            return {"success": False, "error": err}
+
+    start = time.monotonic()
+    try:
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout_s)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return {"success": True, "elapsed_ms": int((time.monotonic() - start) * 1000)}
     except Exception as e:
         return {"success": False, "error": str(e), "elapsed_ms": int((time.monotonic() - start) * 1000)}
 
@@ -293,6 +334,12 @@ class Agent:
 
         if action == "probe":
             result = await _run_probe(msg.get("payload") or {})
+            database.log_command(command_id, plugin_id, action, json.dumps(msg.get("payload", {})),
+                                  "executed" if result.get("success") else "failed")
+            return result
+
+        if action == "ping":
+            result = await _run_ping(msg.get("payload") or {})
             database.log_command(command_id, plugin_id, action, json.dumps(msg.get("payload", {})),
                                   "executed" if result.get("success") else "failed")
             return result
