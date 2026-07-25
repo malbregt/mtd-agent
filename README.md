@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild
   | sudo bash
 ```
 
-Dit installeert de agent en start de service direct — geen aparte onboarding-stap. De agent is dan bereikbaar op `http://mtd-bridge.local:8080` (standaard hostname, override met `--hostname` bij meerdere bridges op één netwerk). Token en plugin(s) koppel je daarna:
+Dit installeert de agent en start de service direct — geen aparte onboarding-stap. De hostname wordt automatisch uniek gemaakt met een stukje CPU-serienummer (bv. `http://mtd-bridge-a3f2.local:8080`), zodat meerdere bridges op hetzelfde netwerk niet botsen — override met `--hostname` voor een eigen naam. Token en plugin(s) koppel je daarna:
 - **Token:** via het veld "Agent-token" op de lokale statuspagina — herstart de service automatisch met de nieuwe waarde.
 - **Plugin(s):** via het platform (config-push naar het device zodra het gekoppeld is).
 

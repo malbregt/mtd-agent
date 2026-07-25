@@ -11,9 +11,9 @@
 #
 # Optioneel vooraf al meegeven (bv. voor scripted rollouts): --agent-key,
 # --plugin/--plugin-config, --device-id (informatief, het platform herleidt
-# het device zelf uit --agent-key), --hostname (default: mtd-bridge,
-# bereikbaar als mtd-bridge.local — geef 'm mee als er meerdere bridges op
-# hetzelfde netwerk komen):
+# het device zelf uit --agent-key), --hostname (default: mtd-bridge-<4hex van
+# CPU-serienummer>, al uniek per bridge — override alleen als je een eigen
+# naam wilt):
 #   curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
 #     | sudo bash -s -- --agent-key mtd_agent_xxxxxxxx
 #
@@ -27,10 +27,11 @@ DEVICE_ID=""
 AGENT_KEY=""
 PLUGIN_ID=""
 PLUGIN_CONFIG="{}"
-# Standaard hostname, bereikbaar als mtd-bridge.local via mDNS (avahi) — bij
-# meerdere bridges op hetzelfde netwerk moet je --hostname meegeven, anders
-# botsen ze op dezelfde .local-naam.
-HOSTNAME_VALUE="mtd-bridge"
+# Standaard hostname, bereikbaar via mDNS (avahi). Wordt hieronder automatisch
+# uniek gemaakt met een stukje CPU-serienummer (mtd-bridge-<4hex>), zodat
+# meerdere bridges op hetzelfde netwerk niet botsen op dezelfde .local-naam.
+# Met --hostname override je dit volledig naar een eigen naam.
+HOSTNAME_VALUE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -44,6 +45,18 @@ while [ $# -gt 0 ]; do
     *) echo "Onbekende optie: $1"; exit 1 ;;
   esac
 done
+
+if [ -z "$HOSTNAME_VALUE" ]; then
+  # Laatste 4 hex-tekens van het CPU-serienummer (/proc/cpuinfo, Raspberry Pi
+  # specifiek) als suffix, zodat meerdere bridges out-of-the-box een unieke
+  # .local-naam krijgen zonder dat je --hostname hoeft mee te geven.
+  SERIAL_SUFFIX="$(awk -F': ' '/^Serial/ {print $2}' /proc/cpuinfo 2>/dev/null | tail -c 5)"
+  if [ -n "$SERIAL_SUFFIX" ]; then
+    HOSTNAME_VALUE="mtd-bridge-$SERIAL_SUFFIX"
+  else
+    HOSTNAME_VALUE="mtd-bridge"
+  fi
+fi
 
 echo "=== MTD Agent — automatische installatie ==="
 
