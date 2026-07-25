@@ -97,6 +97,15 @@ class SyncClient:
             self.authenticated = True
             self.auth_error = None
             log.info("verbonden en geauthenticeerd bij platform (device_id=%s)", msg.get("device_id"))
+            # Meteen een heartbeat sturen i.p.v. te wachten op de volgende
+            # _health_flush_loop-iteratie: die loop verstuurt zijn eerste poging
+            # vaak vóórdat deze WS-verbinding er al was (dan wordt 'm stil
+            # genegeerd door _send(), zie daar), waardoor de agent_version/
+            # update_status-reconciliatie op het platform tot HEALTH_FLUSH_
+            # INTERVAL_S (60s) kon blijven hangen na een herstart — merkbaar
+            # als een "bezig met updaten"-status die veel langer duurt dan de
+            # daadwerkelijke herstart van de Pi.
+            await self._send_health()
             return
         if msg_type == "error":
             self.auth_error = msg.get("detail") or "onbekende fout"
@@ -283,18 +292,21 @@ class SyncClient:
         else:
             log.warning("readings NIET verstuurd (geen WS-verbinding) — blijven lokaal gebufferd (%d meting(en))", len(rows))
 
+    async def _send_health(self) -> None:
+        plugins = self.health.snapshot()
+        sent = await self._send({
+            "channel": "health",
+            "agent_version": get_agent_version(),
+            "uptime_s": int(time.monotonic() - self._started_at),
+            "plugins": plugins,
+        })
+        if sent:
+            log.info("health verstuurd: %d plugin(s) — %s", len(plugins),
+                     ", ".join(f"{p['id']}={p['status']}" for p in plugins) or "geen")
+        else:
+            log.warning("health NIET verstuurd (geen WS-verbinding)")
+
     async def _health_flush_loop(self) -> None:
         while True:
-            plugins = self.health.snapshot()
-            sent = await self._send({
-                "channel": "health",
-                "agent_version": get_agent_version(),
-                "uptime_s": int(time.monotonic() - self._started_at),
-                "plugins": plugins,
-            })
-            if sent:
-                log.info("health verstuurd: %d plugin(s) — %s", len(plugins),
-                         ", ".join(f"{p['id']}={p['status']}" for p in plugins) or "geen")
-            else:
-                log.warning("health NIET verstuurd (geen WS-verbinding)")
+            await self._send_health()
             await asyncio.sleep(config.HEALTH_FLUSH_INTERVAL_S)

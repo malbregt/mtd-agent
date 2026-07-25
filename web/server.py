@@ -115,6 +115,10 @@ class PlatformUrlRequest(BaseModel):
     platform_api_url: str
 
 
+class PasswordCheckRequest(BaseModel):
+    password: str
+
+
 def _local_edit_password(agent) -> str | None:
     """Drempel tegen per-ongeluk aanpassen van het platform-endpoint: de
     laatste 6 tekens van de device-id, die toch al zichtbaar op deze
@@ -214,6 +218,15 @@ def build_app(agent) -> FastAPI:
         write_agent_key(token)
         subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-agent"])
         return {"ok": True, "message": "Token opgeslagen, agent herstart..."}
+
+    @app.post("/api/platform-url/verify-password")
+    def api_platform_url_verify_password(body: PasswordCheckRequest):
+        """Losse controle-stap zodat de UI het wachtwoord meteen kan valideren
+        vóórdat de URL-velden getoond worden, i.p.v. pas bij het opslaan."""
+        expected = _local_edit_password(agent)
+        if not expected or body.password.strip().lower() != expected:
+            raise HTTPException(status_code=403, detail="Onjuist wachtwoord")
+        return {"ok": True}
 
     @app.post("/api/platform-url")
     def api_platform_url(body: PlatformUrlRequest):

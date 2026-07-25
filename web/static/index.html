@@ -337,17 +337,39 @@
     }
 
     async function submitPlatformUrlPassword() {
-      // Het wachtwoord wordt pas echt gevalideerd bij het opslaan (POST
-      // /api/platform-url) — hier alleen een niet-lege waarde vereisen en
-      // doorschakelen naar de URL-velden, zodat je niet je wachtwoord kwijt-
-      // typt zonder al te weten of de URL's kloppen.
       const password = document.getElementById('platform-url-password').value.trim();
       const statusEl = document.getElementById('platform-url-password-status');
+      const btn = document.getElementById('platform-url-password-submit');
+      statusEl.textContent = '';
+      statusEl.className = 'status-msg';
+
       if (!password) {
         statusEl.textContent = 'Vul een wachtwoord in.';
         statusEl.classList.add('error');
         return;
       }
+
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/platform-url/verify-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          statusEl.textContent = data.detail || 'Onjuist wachtwoord';
+          statusEl.classList.add('error');
+          return;
+        }
+      } catch (e) {
+        statusEl.textContent = 'Verbindingsfout';
+        statusEl.classList.add('error');
+        return;
+      } finally {
+        btn.disabled = false;
+      }
+
       platformUrlPassword = password;
       document.getElementById('platform-ws-url-input').value = lastDevice?.platform_ws_url ?? '';
       document.getElementById('platform-api-url-input').value = lastDevice?.platform_api_url ?? '';
@@ -382,9 +404,8 @@
         });
         const data = await resp.json();
         if (resp.ok) {
-          statusEl.textContent = data.message || 'Opgeslagen, agent herstart...';
-          statusEl.classList.add('ok');
           platformUrlPassword = '';
+          closePlatformUrlModal();
         } else if (resp.status === 403) {
           // Fout wachtwoord: terug naar de wachtwoordstap i.p.v. hier te blijven
           // hangen met velden die toch niet opgeslagen kunnen worden.
