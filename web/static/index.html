@@ -229,7 +229,7 @@
       <div class="field">
         <label for="token-input">mtd_agent_...</label>
         <div class="input-with-action">
-          <input id="token-input" type="text" placeholder="mtd_agent_..." autocomplete="off" onfocus="revealToken()">
+          <input id="token-input" type="password" placeholder="mtd_agent_..." autocomplete="off">
           <button type="button" class="input-action-btn" id="token-toggle" onclick="toggleTokenVisibility()">Toon</button>
         </div>
       </div>
@@ -240,24 +240,13 @@
 
   <script>
     let tokenPrefilled = false;
-    let realToken = '';
-    let tokenRevealed = false;
-
-    function maskToken(token) {
-      if (!token) return '';
-      return token.startsWith('mtd_agent_') ? 'mtd_agent_' + '•'.repeat(10) : '•'.repeat(Math.min(token.length, 12));
-    }
 
     function toggleTokenVisibility() {
       const input = document.getElementById('token-input');
       const btn = document.getElementById('token-toggle');
-      tokenRevealed = !tokenRevealed;
-      input.value = tokenRevealed ? realToken : maskToken(realToken);
-      btn.textContent = tokenRevealed ? 'Verberg' : 'Toon';
-    }
-
-    function revealToken() {
-      if (!tokenRevealed) toggleTokenVisibility();
+      const revealed = input.type === 'text';
+      input.type = revealed ? 'password' : 'text';
+      btn.textContent = revealed ? 'Toon' : 'Verberg';
     }
 
     function formatTimestamp(iso) {
@@ -287,11 +276,11 @@
         }
 
         // Vult het tokenveld één keer met de huidige waarde (niet bij elke
-        // refresh, anders overschrijft dat wat de gebruiker aan het typen is)
-        // en toont 'm standaard gemaskeerd (prefix zichtbaar, rest verborgen).
+        // refresh, anders overschrijft dat wat de gebruiker aan het typen is).
+        // Standaard verborgen (type="password"); volledig te bekijken via de
+        // Toon/Verberg-knop.
         if (!tokenPrefilled && device.agent_key) {
-          realToken = device.agent_key;
-          document.getElementById('token-input').value = maskToken(realToken);
+          document.getElementById('token-input').value = device.agent_key;
           tokenPrefilled = true;
         }
 
