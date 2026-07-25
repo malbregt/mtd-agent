@@ -139,6 +139,22 @@
   }
   .empty { color: var(--muted); font-size: 0.85rem; }
   .error-detail { color: var(--danger); font-size: 0.78rem; margin-top: 0.15rem; }
+  .data-toggle { display: inline-block; font-size: 0.78rem; color: var(--primary); text-decoration: none; margin-top: 0.3rem; }
+  .data-toggle:hover { text-decoration: underline; }
+  .readings-panel {
+    margin-top: 0.5rem;
+    background: var(--bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-control);
+    padding: 0.5rem 0.75rem;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .readings-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .readings-table td { padding: 0.2rem 0.4rem; border-bottom: 1px solid var(--card-border); }
+  .readings-table tr:last-child td { border-bottom: none; }
+  .readings-table td:first-child { color: var(--muted); font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .readings-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .logs {
     margin-top: 0.75rem;
     background: var(--bg);
@@ -271,6 +287,8 @@
                 : p.status === 'degraded' ? ' <span class="meta">(storing)</span>' : '';
               const errorLine = (p.last_error && p.status !== 'paused' && p.status !== 'ok')
                 ? `<div class="error-detail">${p.last_error}</div>` : '';
+              const dataToggle = (p.status !== 'paused' && p.last_reading_at)
+                ? `<a href="#" class="data-toggle" onclick="toggleReadings(event, '${p.id}')">Bekijk laatste data</a>` : '';
               return `
                 <div class="plugin-entry">
                   <div class="row">
@@ -278,6 +296,8 @@
                     <span class="meta">${p.status === 'paused' ? '' : (formatTimestamp(p.last_reading_at) ?? 'geen data')}</span>
                   </div>
                   ${errorLine}
+                  ${dataToggle}
+                  <div class="readings-panel" id="readings-${p.id}" hidden></div>
                 </div>
               `;
             }).join('')
@@ -322,6 +342,33 @@
         statusEl.classList.add('error');
       } finally {
         btn.disabled = false;
+        setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'status-msg'; }, 8000);
+      }
+    }
+
+    async function toggleReadings(event, pluginId) {
+      event.preventDefault();
+      const panel = document.getElementById('readings-' + pluginId);
+      const link = event.currentTarget;
+      if (!panel.hidden) {
+        panel.hidden = true;
+        link.textContent = 'Bekijk laatste data';
+        return;
+      }
+      panel.hidden = false;
+      panel.innerHTML = '<span class="empty">Laden...</span>';
+      link.textContent = 'Verberg laatste data';
+      try {
+        const resp = await fetch('/api/readings/' + encodeURIComponent(pluginId));
+        const data = await resp.json();
+        const readings = data.readings || [];
+        panel.innerHTML = readings.length
+          ? '<table class="readings-table">' + readings.map(r =>
+              `<tr><td>${r.metric}</td><td>${r.value}${r.unit ? ' ' + r.unit : ''}</td></tr>`
+            ).join('') + '</table>'
+          : '<span class="empty">Geen data beschikbaar</span>';
+      } catch (e) {
+        panel.innerHTML = '<span class="empty">Verbindingsfout bij ophalen data</span>';
       }
     }
 
@@ -364,6 +411,7 @@
         statusEl.classList.add('error');
       } finally {
         setTimeout(() => { btn.disabled = false; }, 5000);
+        setTimeout(() => { statusEl.textContent = ''; statusEl.className = 'status-msg'; }, 8000);
       }
     }
   </script>

@@ -156,6 +156,17 @@ def build_app(agent) -> FastAPI:
                 latest_by_plugin[source] = dict(row)
         return latest_by_plugin
 
+    @app.get("/api/readings/{source}")
+    def api_readings_latest(source: str):
+        rows = database.latest_readings_batch(source)
+        return {
+            "timestamp": rows[0]["timestamp"] if rows else None,
+            "readings": [
+                {"metric": r["metric"], "value": r["value"], "unit": r["unit"], "direction": r["direction"]}
+                for r in rows
+            ],
+        }
+
     @app.get("/api/device")
     def api_device():
         local_ip = _local_ip()

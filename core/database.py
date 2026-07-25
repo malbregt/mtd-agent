@@ -199,6 +199,24 @@ def unsynced_readings(limit: int = 500) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def latest_readings_batch(source: str) -> list[sqlite3.Row]:
+    """Alle metingen van de laatste collect()-cyclus van deze plugin — één
+    cyclus levert meerdere rijen op (bv. elk veld uit een API-response) die
+    allemaal dezelfde timestamp delen, dus filteren op MAX(timestamp) pakt
+    precies die ene cyclus. Onafhankelijk van synced, i.t.t.
+    unsynced_readings() — deze is puur voor het tonen van de laatst
+    opgehaalde ruwe data op de statuspagina."""
+    with _connect() as conn:
+        return conn.execute(
+            """SELECT metric, value, unit, direction, timestamp FROM readings
+               WHERE source = ? AND timestamp = (
+                   SELECT MAX(timestamp) FROM readings WHERE source = ?
+               )
+               ORDER BY metric""",
+            (source, source),
+        ).fetchall()
+
+
 def mark_synced(ids: list[int]) -> None:
     if not ids:
         return
