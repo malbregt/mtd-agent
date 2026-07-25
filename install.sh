@@ -13,10 +13,7 @@
 # --plugin/--plugin-config, --device-id (informatief, het platform herleidt
 # het device zelf uit --agent-key), --hostname (default: mtd-bridge,
 # bereikbaar als mtd-bridge.local — geef 'm mee als er meerdere bridges op
-# hetzelfde netwerk komen). Elke Pi publiceert daarnaast altijd automatisch
-# een uniek tweede mDNS-adres mtd-<cpu-serial>.local (zie
-# scripts/publish-alias.sh) — handig zolang je nog geen --hostname per bridge
-# hebt gezet en er meerdere kale bridges tegelijk op hetzelfde netwerk staan.
+# hetzelfde netwerk komen):
 #   curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
 #     | sudo bash -s -- --agent-key mtd_agent_xxxxxxxx
 #
@@ -89,8 +86,6 @@ python3 -m venv "$INSTALL_DIR/venv"
 
 echo "[6/7] Systemd-unit installeren, device-config en plugin registreren..."
 cp "$INSTALL_DIR/systemd/mtd-agent.service" /etc/systemd/system/
-cp "$INSTALL_DIR/systemd/mtd-agent-alias.service" /etc/systemd/system/
-chmod +x "$INSTALL_DIR/scripts/publish-alias.sh"
 systemctl daemon-reload
 
 # Via environment-variabelen doorgeven aan Python i.p.v. shell-string-interpolatie
@@ -127,21 +122,11 @@ PYEOF
 echo "[7/7] Agent starten..."
 systemctl enable mtd-agent
 systemctl restart mtd-agent
-systemctl enable mtd-agent-alias
-systemctl restart mtd-agent-alias
-
-SERIAL=$(awk -F': ' '/^Serial/ {print $2}' /proc/cpuinfo 2>/dev/null | tr -d ' \n')
-if [ -z "$SERIAL" ]; then
-  SERIAL=$(cat /etc/machine-id)
-fi
-ALIAS_HOSTNAME="mtd-${SERIAL: -6}"
 
 echo ""
 echo "Klaar. Status:  sudo systemctl status mtd-agent"
 echo "        Logs:   sudo journalctl -u mtd-agent -f"
 echo "        Lokale statuspagina: http://$HOSTNAME_VALUE.local:8080 (of http://$(hostname -I | awk '{print $1}'):8080)"
-echo "        Uniek per-Pi adres (werkt ook als er meerdere kale bridges tegelijk"
-echo "        opstarten en $HOSTNAME_VALUE.local dus botst): http://$ALIAS_HOSTNAME.local:8080"
 if [ -z "$AGENT_KEY" ]; then
   echo ""
   echo "Nog geen agent-token meegegeven — vul 'm in op de lokale statuspagina hierboven."
