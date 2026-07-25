@@ -53,6 +53,12 @@ class HomewizardP1Plugin(DevicePlugin):
             async with session.get(f"{host}/api", timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 resp.raise_for_status()
                 info = await resp.json()
+            product_type = info.get("product_type")
+            if product_type != "HWE-P1":
+                raise ValueError(
+                    f"Dit adres is geen HomeWizard P1 Meter, maar '{info.get('product_name') or product_type}' "
+                    f"({product_type}). Controleer of je het juiste apparaat hebt ingevuld."
+                )
             async with session.get(f"{host}/api/v1/data", timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
