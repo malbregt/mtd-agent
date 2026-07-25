@@ -4,17 +4,18 @@ Edge agent voor het [mijnthuisdata](https://mijnthuisdata.nl) platform. Draait o
 
 ## Installatie
 
-Op een verse Raspberry Pi OS Lite installatie, met een device-id en agent-token die het platform al heeft uitgegeven:
+Op een verse Raspberry Pi OS Lite installatie volstaat één kaal commando — geen argumenten nodig:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
-  | sudo bash -s -- \
-      --agent-key mtd_agent_xxxxxxxx \
-      --plugin p1_serial \
-      --plugin-config '{"port":"/dev/ttyUSB0","baudrate":115200,"collect_interval_s":10}'
+  | sudo bash
 ```
 
-Dit installeert de agent, schrijft het token weg en start de service direct — geen aparte onboarding-stap. Ontbreekt het token nog (of is het gewijzigd), dan is dat achteraf in te vullen via de lokale statuspagina (`http://<pi-ip>:8080`), via het veld "Agent-token" — dit herstart de service automatisch met de nieuwe waarde.
+Dit installeert de agent en start de service direct — geen aparte onboarding-stap. De agent is dan bereikbaar op `http://mtd-bridge.local:8080` (standaard hostname, override met `--hostname` bij meerdere bridges op één netwerk). Token en plugin(s) koppel je daarna:
+- **Token:** via het veld "Agent-token" op de lokale statuspagina — herstart de service automatisch met de nieuwe waarde.
+- **Plugin(s):** via het platform (config-push naar het device zodra het gekoppeld is).
+
+Voor scripted rollouts kun je `--agent-key`/`--plugin`/`--plugin-config` ook meteen meegeven aan `install.sh` (zie de comments bovenin het script), maar dat is niet de standaardroute.
 
 **Update:** `scripts/update.sh` wordt door het platform op afstand getriggerd (via `core/sync.py`) en checkt uit naar de opgegeven git-tag, met een sanity-check en automatische terugval naar de vorige versie bij een mislukte update.
 
@@ -22,7 +23,7 @@ Dit installeert de agent, schrijft het token weg en start de service direct — 
 
 ```
 mtd-agent/
-├── install.sh                    # Eén-commando installatie (device-id/token al bekend bij platform)
+├── install.sh                    # Eén-commando installatie, alle argumenten optioneel
 ├── main.py                       # Entrypoint: bootstrap agent + lokale webserver
 ├── config.py                     # Config (env-variabelen)
 ├── requirements.txt

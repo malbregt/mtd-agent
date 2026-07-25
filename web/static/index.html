@@ -86,6 +86,9 @@
     font-size: 0.9rem;
   }
   .row:last-child { border-bottom: none; }
+  .plugin-entry { border-bottom: 1px solid var(--card-border); padding: 0.5rem 0; }
+  .plugin-entry:last-child { border-bottom: none; }
+  .plugin-entry .row { border-bottom: none; padding: 0; }
   .row > span:first-child { display: flex; align-items: center; min-width: 0; }
   .row > span:last-child { color: var(--fg); font-variant-numeric: tabular-nums; text-align: right; }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 0.55rem; flex-shrink: 0; background: var(--muted); }
@@ -119,6 +122,9 @@
   }
   .btn:hover:not(:disabled) { filter: brightness(1.08); }
   .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn-secondary { background: var(--card-border); color: var(--fg); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .actions { display: flex; gap: 0.6rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--card-border); }
   .status-msg { font-size: 0.8rem; margin-top: 0.6rem; }
   .status-msg.ok { color: var(--success); }
   .status-msg.error { color: var(--danger); }
@@ -132,6 +138,21 @@
     display: none;
   }
   .empty { color: var(--muted); font-size: 0.85rem; }
+  .error-detail { color: var(--danger); font-size: 0.78rem; margin-top: 0.15rem; }
+  .logs {
+    margin-top: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-control);
+    padding: 0.75rem;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 320px;
+    overflow-y: auto;
+  }
 </style>
 </head>
 <body>
@@ -160,6 +181,12 @@
     <div class="card">
       <p class="card-title">Apparaat</p>
       <div id="device"></div>
+      <div class="actions">
+        <button class="btn btn-secondary" id="logs-toggle" onclick="toggleLogs()">Bekijk logs</button>
+        <button class="btn btn-danger" id="restart-btn" onclick="restartAgent()">Herstart agent</button>
+      </div>
+      <div class="status-msg" id="restart-status"></div>
+      <pre class="logs" id="logs-panel" hidden></pre>
     </div>
 
     <div class="card">
@@ -214,13 +241,19 @@
           tokenPrefilled = true;
         }
 
+        const diskLine = device.disk_total_gb
+          ? `${device.disk_used_gb} / ${device.disk_total_gb} GB (${device.disk_percent}%)` : '-';
+
         document.getElementById('device').innerHTML = `
           <div class="row"><span>Device</span><span>${device.device_id ?? '-'}</span></div>
           <div class="row"><span>Versie</span><span>${device.agent_version}</span></div>
           <div class="row"><span>Uptime</span><span>${Math.floor(device.uptime_s / 3600)}u ${Math.floor((device.uptime_s % 3600) / 60)}m</span></div>
+          <div class="row"><span>Laatste boot</span><span>${formatTimestamp(device.boot_time) ?? '-'}</span></div>
           <div class="row"><span>Netwerk</span><span>${device.network_mode}</span></div>
           <div class="row"><span>Lokaal IP-adres</span><span>${device.local_ip ?? '-'}</span></div>
           <div class="row"><span>Subnetmasker</span><span>${device.subnet_mask ?? '-'}</span></div>
+          <div class="row"><span>Schijfruimte</span><span>${diskLine}</span></div>
+          <div class="row"><span>CPU-temperatuur</span><span>${device.cpu_temp_c != null ? device.cpu_temp_c + ' °C' : '-'}</span></div>
         `;
 
         const plugins = health.plugins || [];
@@ -236,10 +269,15 @@
               const versionPart = p.installed_version ? `<span class="plugin-slug">v${p.installed_version}</span>` : '';
               const statusNote = p.status === 'paused' ? ' <span class="meta">(gepauzeerd)</span>'
                 : p.status === 'degraded' ? ' <span class="meta">(storing)</span>' : '';
+              const errorLine = (p.last_error && p.status !== 'paused' && p.status !== 'ok')
+                ? `<div class="error-detail">${p.last_error}</div>` : '';
               return `
-                <div class="row">
-                  <span><span class="dot ${p.status}"></span><span class="plugin-name">${primary}</span> ${instancePart} ${versionPart}${statusNote}</span>
-                  <span class="meta">${p.status === 'paused' ? '' : (formatTimestamp(p.last_reading_at) ?? 'geen data')}</span>
+                <div class="plugin-entry">
+                  <div class="row">
+                    <span><span class="dot ${p.status}"></span><span class="plugin-name">${primary}</span> ${instancePart} ${versionPart}${statusNote}</span>
+                    <span class="meta">${p.status === 'paused' ? '' : (formatTimestamp(p.last_reading_at) ?? 'geen data')}</span>
+                  </div>
+                  ${errorLine}
                 </div>
               `;
             }).join('')
@@ -284,6 +322,48 @@
         statusEl.classList.add('error');
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    async function toggleLogs() {
+      const panel = document.getElementById('logs-panel');
+      const btn = document.getElementById('logs-toggle');
+      if (!panel.hidden) {
+        panel.hidden = true;
+        btn.textContent = 'Bekijk logs';
+        return;
+      }
+      btn.disabled = true;
+      panel.hidden = false;
+      panel.textContent = 'Logs laden...';
+      try {
+        const resp = await fetch('/api/logs?lines=200');
+        const data = await resp.json();
+        panel.textContent = resp.ok ? (data.log || 'Geen logregels.') : (data.detail || 'Logs ophalen mislukt');
+      } catch (e) {
+        panel.textContent = 'Verbindingsfout bij ophalen logs.';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Verberg logs';
+      }
+    }
+
+    async function restartAgent() {
+      if (!confirm('Weet je zeker dat je de agent wilt herstarten? Actieve koppelingen worden even onderbroken.')) return;
+      const statusEl = document.getElementById('restart-status');
+      const btn = document.getElementById('restart-btn');
+      btn.disabled = true;
+      statusEl.className = 'status-msg';
+      try {
+        const resp = await fetch('/api/restart', { method: 'POST' });
+        const data = await resp.json();
+        statusEl.textContent = data.message || 'Agent herstart...';
+        statusEl.classList.add(resp.ok ? 'ok' : 'error');
+      } catch (e) {
+        statusEl.textContent = 'Verbindingsfout';
+        statusEl.classList.add('error');
+      } finally {
+        setTimeout(() => { btn.disabled = false; }, 5000);
       }
     }
   </script>

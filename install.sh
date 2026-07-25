@@ -1,19 +1,23 @@
 #!/bin/bash
-# Eén-commando installatie: geen onboarding-flow, geen aparte portal-service —
-# device-id en agent-token zijn al bekend bij het platform, dus dit script
-# installeert en start de agent direct.
+# Eén-commando installatie: geen onboarding-flow, geen aparte portal-service.
+# Alle argumenten zijn optioneel — zonder argumenten installeert dit script
+# gewoon een kale, ongekoppelde agent; token en plugin(s) koppel je daarna via
+# de lokale statuspagina (http://mtd-bridge.local:8080) resp. het platform
+# (config-push naar het device), niet via dit script.
 #
-# Gebruik (op de Pi, als root/via sudo) — --device-id is optioneel/informatief,
-# het platform herleidt het device zelf uit --agent-key. --hostname is
-# optioneel (default: mtd-bridge, bereikbaar als mtd-bridge.local) — geef 'm
-# expliciet mee als er meerdere bridges op hetzelfde netwerk komen:
+# Kale installatie (op de Pi, als root/via sudo):
 #   curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
-#     | sudo bash -s -- \
-#         --agent-key mtd_agent_xxxxxxxx \
-#         --plugin p1_serial \
-#         --plugin-config '{"port":"/dev/ttyUSB0","baudrate":115200,"collect_interval_s":10}'
+#     | sudo bash
 #
-# Of lokaal na een git clone: bash install.sh --agent-key ... --plugin ... --plugin-config '...'
+# Optioneel vooraf al meegeven (bv. voor scripted rollouts): --agent-key,
+# --plugin/--plugin-config, --device-id (informatief, het platform herleidt
+# het device zelf uit --agent-key), --hostname (default: mtd-bridge,
+# bereikbaar als mtd-bridge.local — geef 'm mee als er meerdere bridges op
+# hetzelfde netwerk komen):
+#   curl -fsSL https://raw.githubusercontent.com/malbregt/mtd-agent/v2-async-rebuild/install.sh \
+#     | sudo bash -s -- --agent-key mtd_agent_xxxxxxxx
+#
+# Of lokaal na een git clone: bash install.sh [--agent-key ...] [--plugin ... --plugin-config ...]
 set -euo pipefail
 
 REPO_URL="https://github.com/malbregt/mtd-agent.git"
@@ -40,11 +44,6 @@ while [ $# -gt 0 ]; do
     *) echo "Onbekende optie: $1"; exit 1 ;;
   esac
 done
-
-if [ -z "$AGENT_KEY" ]; then
-  echo "Verplicht: --agent-key (het platform herleidt device_id zelf uit dit token)" >&2
-  exit 1
-fi
 
 echo "=== MTD Agent — automatische installatie ==="
 
@@ -128,3 +127,7 @@ echo ""
 echo "Klaar. Status:  sudo systemctl status mtd-agent"
 echo "        Logs:   sudo journalctl -u mtd-agent -f"
 echo "        Lokale statuspagina: http://$HOSTNAME_VALUE.local:8080 (of http://$(hostname -I | awk '{print $1}'):8080)"
+if [ -z "$AGENT_KEY" ]; then
+  echo ""
+  echo "Nog geen agent-token meegegeven — vul 'm in op de lokale statuspagina hierboven."
+fi

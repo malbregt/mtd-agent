@@ -1,8 +1,10 @@
 import ipaddress
 import re
+import shutil
 import socket
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +14,7 @@ from pydantic import BaseModel
 
 import config
 from core import database
+from core.agent import _get_logs
 from core.env_file import write_agent_key
 from core.version import get_agent_version
 
@@ -67,6 +70,39 @@ def _subnet_mask(ip: str | None) -> str | None:
     except (OSError, subprocess.SubprocessError):
         pass
     return None
+
+
+def _disk_usage() -> dict:
+    """Schijfruimte van de SD-kaart — SD-kaarten zijn de zwakke plek bij een
+    24/7 draaiende Pi, dus vroeg zicht op vollopen is hier meer waard dan
+    ergens anders."""
+    try:
+        usage = shutil.disk_usage("/")
+        return {
+            "disk_total_gb": round(usage.total / 1_000_000_000, 1),
+            "disk_used_gb": round(usage.used / 1_000_000_000, 1),
+            "disk_percent": round(usage.used / usage.total * 100, 1),
+        }
+    except OSError:
+        return {"disk_total_gb": None, "disk_used_gb": None, "disk_percent": None}
+
+
+def _cpu_temp_c() -> float | None:
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            return round(int(f.read().strip()) / 1000, 1)
+    except (OSError, ValueError):
+        return None
+
+
+def _boot_time() -> str | None:
+    try:
+        with open("/proc/uptime") as f:
+            uptime_s = float(f.read().split()[0])
+        boot_ts = datetime.now(timezone.utc).timestamp() - uptime_s
+        return datetime.fromtimestamp(boot_ts, tz=timezone.utc).isoformat()
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 class TokenRequest(BaseModel):
@@ -131,6 +167,9 @@ def build_app(agent) -> FastAPI:
             "agent_key": config.AGENT_KEY,
             "local_ip": local_ip,
             "subnet_mask": _subnet_mask(local_ip),
+            "boot_time": _boot_time(),
+            "cpu_temp_c": _cpu_temp_c(),
+            **_disk_usage(),
         }
 
     @app.post("/api/token")
@@ -145,5 +184,17 @@ def build_app(agent) -> FastAPI:
         write_agent_key(token)
         subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-agent"])
         return {"ok": True, "message": "Token opgeslagen, agent herstart..."}
+
+    @app.post("/api/restart")
+    def api_restart():
+        subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-agent"])
+        return {"ok": True, "message": "Agent herstart..."}
+
+    @app.get("/api/logs")
+    async def api_logs(lines: int = 200):
+        result = await _get_logs({"lines": lines})
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error") or "Logs ophalen mislukt")
+        return result
 
     return app
