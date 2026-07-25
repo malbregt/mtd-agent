@@ -128,6 +128,14 @@ class SyncClient:
             version = msg.get("version")
             log.warning("update-commando ontvangen: agent wordt bijgewerkt naar %s", version)
             self._trigger_update(version)
+        elif msg.get("type") == "flush_now":
+            # "Nu ophalen"-knop in de webapp: stuurt de al lokaal gebufferde,
+            # nog niet gesynchroniseerde metingen direct door, zonder te
+            # wachten op de volgende READINGS_FLUSH_INTERVAL_S-cyclus. Start
+            # bewust geen nieuwe collect() op de plugins zelf — dat blijft aan
+            # hun eigen poll-interval.
+            log.info("flush_now ontvangen, stuur gebufferde readings direct door")
+            await self._flush_readings()
 
     def _trigger_update(self, version: str) -> None:
         """Kopieert het update-script naar /tmp en voert het als losstaand
@@ -235,29 +243,32 @@ class SyncClient:
     async def _readings_flush_loop(self) -> None:
         while True:
             await asyncio.sleep(config.READINGS_FLUSH_INTERVAL_S)
-            rows = database.unsynced_readings()
-            if not rows:
-                continue
-            # Groepeer per (source, timestamp): metingen die in dezelfde collect()-
-            # cyclus zijn opgehaald horen bij elkaar (bv. alle OBIS-velden van één
-            # P1-telegram) en moeten als één item bij de platform-normalisatie
-            # aankomen, niet los per metric.
-            grouped: dict[tuple[str, str], dict] = {}
-            ids_by_group: dict[tuple[str, str], list[int]] = {}
-            for r in rows:
-                key = (r["source"], r["timestamp"])
-                grouped.setdefault(key, {})[r["metric"]] = {"value": r["value"], "unit": r["unit"]}
-                ids_by_group.setdefault(key, []).append(r["id"])
+            await self._flush_readings()
 
-            readings = [
-                {"integration_id": source, "timestamp": ts, "data": data}
-                for (source, ts), data in grouped.items()
-            ]
-            if await self._send({"channel": "data", "readings": readings}):
-                database.mark_synced([i for ids in ids_by_group.values() for i in ids])
-                log.info("readings verstuurd: %d item(s), %d meting(en)", len(readings), len(rows))
-            else:
-                log.warning("readings NIET verstuurd (geen WS-verbinding) — blijven lokaal gebufferd (%d meting(en))", len(rows))
+    async def _flush_readings(self) -> None:
+        rows = database.unsynced_readings()
+        if not rows:
+            return
+        # Groepeer per (source, timestamp): metingen die in dezelfde collect()-
+        # cyclus zijn opgehaald horen bij elkaar (bv. alle OBIS-velden van één
+        # P1-telegram) en moeten als één item bij de platform-normalisatie
+        # aankomen, niet los per metric.
+        grouped: dict[tuple[str, str], dict] = {}
+        ids_by_group: dict[tuple[str, str], list[int]] = {}
+        for r in rows:
+            key = (r["source"], r["timestamp"])
+            grouped.setdefault(key, {})[r["metric"]] = {"value": r["value"], "unit": r["unit"]}
+            ids_by_group.setdefault(key, []).append(r["id"])
+
+        readings = [
+            {"integration_id": source, "timestamp": ts, "data": data}
+            for (source, ts), data in grouped.items()
+        ]
+        if await self._send({"channel": "data", "readings": readings}):
+            database.mark_synced([i for ids in ids_by_group.values() for i in ids])
+            log.info("readings verstuurd: %d item(s), %d meting(en)", len(readings), len(rows))
+        else:
+            log.warning("readings NIET verstuurd (geen WS-verbinding) — blijven lokaal gebufferd (%d meting(en))", len(rows))
 
     async def _health_flush_loop(self) -> None:
         while True:

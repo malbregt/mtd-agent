@@ -76,6 +76,9 @@
     color: var(--muted);
     margin: 0 0 0.6rem;
   }
+  .card-title.card-title-danger {
+    color: var(--danger-fg);
+  }
   .row {
     display: flex;
     justify-content: space-between;
@@ -225,7 +228,7 @@
     </div>
 
     <div class="card">
-      <p class="card-title">Agent-token</p>
+      <p class="card-title" id="token-card-title">Agent-token</p>
       <div class="field">
         <label for="token-input">mtd_agent_...</label>
         <div class="input-with-action">
@@ -283,6 +286,10 @@
           document.getElementById('token-input').value = device.agent_key;
           tokenPrefilled = true;
         }
+
+        document.getElementById('token-card-title').classList.toggle(
+          'card-title-danger', !device.agent_key
+        );
 
         const diskLine = device.disk_total_gb
           ? `${device.disk_used_gb} / ${device.disk_total_gb} GB (${device.disk_percent}%)` : '-';
