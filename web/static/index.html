@@ -76,7 +76,16 @@
     color: var(--muted);
     margin: 0 0 0.6rem;
   }
-  .card-title.card-title-danger {
+  .card.card-danger {
+    background: var(--danger-bg);
+    border-color: var(--danger-border);
+  }
+  .card-desc {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin: -0.3rem 0 0.9rem;
+  }
+  .card-desc.card-desc-danger {
     color: var(--danger-fg);
   }
   .row {
@@ -227,8 +236,11 @@
       <div id="plugins"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="token-card">
       <p class="card-title" id="token-card-title">Agent-token</p>
+      <p class="card-desc" id="token-card-desc">
+        Vul hier het apparaat-token in (te vinden in de webapp bij dit device) om deze bridge aan het platform te koppelen.
+      </p>
       <div class="field">
         <label for="token-input">mtd_agent_...</label>
         <div class="input-with-action">
@@ -287,9 +299,12 @@
           tokenPrefilled = true;
         }
 
-        document.getElementById('token-card-title').classList.toggle(
-          'card-title-danger', !device.agent_key
-        );
+        const tokenMissing = !device.agent_key;
+        document.getElementById('token-card').classList.toggle('card-danger', tokenMissing);
+        document.getElementById('token-card-desc').classList.toggle('card-desc-danger', tokenMissing);
+        document.getElementById('token-card-desc').textContent = tokenMissing
+          ? 'Nog geen token ingevuld — deze bridge is nog niet gekoppeld aan het platform. Vul het apparaat-token in (te vinden in de webapp bij dit device) om te koppelen.'
+          : 'Vul hier het apparaat-token in (te vinden in de webapp bij dit device) om deze bridge aan het platform te koppelen.';
 
         const diskLine = device.disk_total_gb
           ? `${device.disk_used_gb} / ${device.disk_total_gb} GB (${device.disk_percent}%)` : '-';
