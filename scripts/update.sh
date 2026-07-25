@@ -35,15 +35,19 @@ if ! git fetch --tags 2>&1; then
   exit 1
 fi
 
-if ! git checkout "$TARGET_VERSION" 2>&1; then
+# -f: negeer lokale wijzigingen in tracked bestanden (bv. een chmod +x die een
+# eerdere install.sh/update ooit heeft achtergelaten) — dit is een deployment-
+# working-tree, geen plek voor handmatige/lokale edits, dus die mogen altijd
+# overschreven worden door de release die we net opgehaald hebben.
+if ! git checkout -f "$TARGET_VERSION" 2>&1; then
   report_failure "git checkout naar $TARGET_VERSION mislukt"
-  git checkout "$PREV_COMMIT" 2>&1
+  git checkout -f "$PREV_COMMIT" 2>&1
   exit 1
 fi
 
 if ! "$INSTALL_DIR/venv/bin/pip" install -q -r requirements.txt 2>&1; then
   report_failure "pip install mislukt na checkout naar $TARGET_VERSION"
-  git checkout "$PREV_COMMIT" 2>&1
+  git checkout -f "$PREV_COMMIT" 2>&1
   systemctl restart mtd-agent
   exit 1
 fi
@@ -65,7 +69,7 @@ for f in pathlib.Path('.').rglob('*.py'):
 sys.exit(1 if failed else 0)
 "; then
   report_failure "py_compile sanity-check mislukt voor $TARGET_VERSION, teruggedraaid naar $PREV_COMMIT"
-  git checkout "$PREV_COMMIT" 2>&1
+  git checkout -f "$PREV_COMMIT" 2>&1
   systemctl restart mtd-agent
   exit 1
 fi
