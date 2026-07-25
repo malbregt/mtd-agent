@@ -15,7 +15,7 @@ from pydantic import BaseModel
 import config
 from core import database
 from core.agent import _get_logs
-from core.env_file import write_agent_key
+from core.env_file import write_agent_key, write_env
 from core.version import get_agent_version
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -109,6 +109,23 @@ class TokenRequest(BaseModel):
     token: str
 
 
+class PlatformUrlRequest(BaseModel):
+    password: str
+    platform_ws_url: str
+    platform_api_url: str
+
+
+def _local_edit_password(agent) -> str | None:
+    """Drempel tegen per-ongeluk aanpassen van het platform-endpoint: de
+    laatste 6 tekens van de device-id, die toch al zichtbaar op deze
+    pagina staat. Geen echte beveiliging — voorkomt alleen dat iemand de
+    URL blind via de API wijzigt zonder de pagina ooit gezien te hebben."""
+    device_id = agent.device_id or _pi_serial()
+    if not device_id or len(device_id) < 6:
+        return None
+    return device_id[-6:].lower()
+
+
 def build_app(agent) -> FastAPI:
     app = FastAPI(title="MTD Agent")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -176,6 +193,8 @@ def build_app(agent) -> FastAPI:
             "uptime_s": int(time.monotonic() - _START_TIME),
             "network_mode": database.get_device_config("network_mode", "lan"),
             "agent_key": config.AGENT_KEY,
+            "platform_ws_url": config.PLATFORM_WS_URL,
+            "platform_api_url": config.PLATFORM_API_URL,
             "local_ip": local_ip,
             "subnet_mask": _subnet_mask(local_ip),
             "boot_time": _boot_time(),
@@ -195,6 +214,22 @@ def build_app(agent) -> FastAPI:
         write_agent_key(token)
         subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-agent"])
         return {"ok": True, "message": "Token opgeslagen, agent herstart..."}
+
+    @app.post("/api/platform-url")
+    def api_platform_url(body: PlatformUrlRequest):
+        """Wijzig het platform-endpoint (WS/API) waarmee deze bridge
+        verbindt — bv. om een test-bridge naar een testomgeving te laten
+        wijzen. Alleen zinvol vóórdat de bridge gekoppeld/online is, dus dit
+        gaat lokaal via het env-bestand i.p.v. via het platform zelf."""
+        expected = _local_edit_password(agent)
+        if not expected or body.password.strip().lower() != expected:
+            raise HTTPException(status_code=403, detail="Onjuist wachtwoord")
+        write_env({
+            "PLATFORM_WS_URL": body.platform_ws_url.strip(),
+            "PLATFORM_API_URL": body.platform_api_url.strip(),
+        })
+        subprocess.Popen(["bash", "-c", "sleep 1 && systemctl restart mtd-agent"])
+        return {"ok": True, "message": "Platform-endpoint opgeslagen, agent herstart..."}
 
     @app.post("/api/restart")
     def api_restart():

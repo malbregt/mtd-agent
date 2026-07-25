@@ -229,6 +229,26 @@
       </div>
       <div class="status-msg" id="restart-status"></div>
       <pre class="logs" id="logs-panel" hidden></pre>
+
+      <div id="platform-url-form" hidden>
+        <div class="field">
+          <label for="platform-ws-url-input">Platform WS-URL</label>
+          <input id="platform-ws-url-input" type="text" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="platform-api-url-input">Platform API-URL</label>
+          <input id="platform-api-url-input" type="text" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="platform-url-password">Wachtwoord (laatste 6 tekens van Device)</label>
+          <input id="platform-url-password" type="password" autocomplete="off">
+        </div>
+        <div class="actions">
+          <button class="btn" id="platform-url-submit" onclick="submitPlatformUrl()">Opslaan</button>
+          <button class="btn btn-secondary" onclick="togglePlatformUrlForm(event)">Annuleren</button>
+        </div>
+        <div class="status-msg" id="platform-url-status"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -255,6 +275,53 @@
 
   <script>
     let tokenPrefilled = false;
+    let platformUrlPrefilled = false;
+
+    function togglePlatformUrlForm(event) {
+      event.preventDefault();
+      const form = document.getElementById('platform-url-form');
+      form.hidden = !form.hidden;
+    }
+
+    async function submitPlatformUrl() {
+      const statusEl = document.getElementById('platform-url-status');
+      const btn = document.getElementById('platform-url-submit');
+      statusEl.textContent = '';
+      statusEl.className = 'status-msg';
+
+      const platform_ws_url = document.getElementById('platform-ws-url-input').value.trim();
+      const platform_api_url = document.getElementById('platform-api-url-input').value.trim();
+      const password = document.getElementById('platform-url-password').value.trim();
+
+      if (!platform_ws_url || !platform_api_url || !password) {
+        statusEl.textContent = 'Vul alle velden in.';
+        statusEl.classList.add('error');
+        return;
+      }
+
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/api/platform-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform_ws_url, platform_api_url, password }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          statusEl.textContent = data.message || 'Opgeslagen, agent herstart...';
+          statusEl.classList.add('ok');
+          document.getElementById('platform-url-password').value = '';
+        } else {
+          statusEl.textContent = data.detail || 'Opslaan mislukt';
+          statusEl.classList.add('error');
+        }
+      } catch (e) {
+        statusEl.textContent = 'Verbindingsfout';
+        statusEl.classList.add('error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
     function toggleTokenVisibility() {
       const input = document.getElementById('token-input');
@@ -319,7 +386,17 @@
           <div class="row"><span>Subnetmasker</span><span>${device.subnet_mask ?? '-'}</span></div>
           <div class="row"><span>Schijfruimte</span><span>${diskLine}</span></div>
           <div class="row"><span>CPU-temperatuur</span><span>${device.cpu_temp_c != null ? device.cpu_temp_c + ' °C' : '-'}</span></div>
+          <div class="row">
+            <span>Platform WS-URL</span>
+            <span>${device.platform_ws_url ?? '-'} <a href="#" class="data-toggle" onclick="togglePlatformUrlForm(event)">wijzig</a></span>
+          </div>
+          <div class="row"><span>Platform API-URL</span><span>${device.platform_api_url ?? '-'}</span></div>
         `;
+        if (!platformUrlPrefilled) {
+          document.getElementById('platform-ws-url-input').value = device.platform_ws_url ?? '';
+          document.getElementById('platform-api-url-input').value = device.platform_api_url ?? '';
+          platformUrlPrefilled = true;
+        }
 
         const plugins = health.plugins || [];
         document.getElementById('plugins').innerHTML = plugins.length
