@@ -181,6 +181,36 @@
   .readings-table tr:last-child td { border-bottom: none; }
   .readings-table td:first-child { color: var(--muted); font-family: "JetBrains Mono", ui-monospace, monospace; }
   .readings-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.85rem;
+    line-height: 1;
+    margin-left: 0.4rem;
+  }
+  .icon-btn:hover { color: var(--primary); }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    z-index: 50;
+  }
+  .modal-overlay[hidden] { display: none; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-card);
+    padding: 1.1rem 1.25rem;
+    width: 100%;
+    max-width: 360px;
+  }
   .logs {
     margin-top: 0.75rem;
     background: var(--bg);
@@ -229,25 +259,39 @@
       </div>
       <div class="status-msg" id="restart-status"></div>
       <pre class="logs" id="logs-panel" hidden></pre>
+    </div>
 
-      <div id="platform-url-form" hidden>
-        <div class="field">
-          <label for="platform-ws-url-input">Platform WS-URL</label>
-          <input id="platform-ws-url-input" type="text" autocomplete="off">
+    <div class="modal-overlay" id="platform-url-modal" hidden>
+      <div class="modal">
+        <p class="card-title">Platform-URL wijzigen</p>
+
+        <div id="platform-url-step-password">
+          <div class="field">
+            <label for="platform-url-password">Wachtwoord</label>
+            <input id="platform-url-password" type="password" autocomplete="off">
+          </div>
+          <div class="status-msg" id="platform-url-password-status"></div>
+          <div class="actions">
+            <button class="btn" id="platform-url-password-submit" onclick="submitPlatformUrlPassword()">Doorgaan</button>
+            <button class="btn btn-secondary" onclick="closePlatformUrlModal()">Annuleren</button>
+          </div>
         </div>
-        <div class="field">
-          <label for="platform-api-url-input">Platform API-URL</label>
-          <input id="platform-api-url-input" type="text" autocomplete="off">
+
+        <div id="platform-url-step-fields" hidden>
+          <div class="field">
+            <label for="platform-ws-url-input">Platform WS-URL</label>
+            <input id="platform-ws-url-input" type="text" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="platform-api-url-input">Platform API-URL</label>
+            <input id="platform-api-url-input" type="text" autocomplete="off">
+          </div>
+          <div class="status-msg" id="platform-url-status"></div>
+          <div class="actions">
+            <button class="btn" id="platform-url-submit" onclick="submitPlatformUrl()">Opslaan</button>
+            <button class="btn btn-secondary" onclick="closePlatformUrlModal()">Annuleren</button>
+          </div>
         </div>
-        <div class="field">
-          <label for="platform-url-password">Wachtwoord (laatste 6 tekens van Device)</label>
-          <input id="platform-url-password" type="password" autocomplete="off">
-        </div>
-        <div class="actions">
-          <button class="btn" id="platform-url-submit" onclick="submitPlatformUrl()">Opslaan</button>
-          <button class="btn btn-secondary" onclick="togglePlatformUrlForm(event)">Annuleren</button>
-        </div>
-        <div class="status-msg" id="platform-url-status"></div>
       </div>
     </div>
 
@@ -275,12 +319,42 @@
 
   <script>
     let tokenPrefilled = false;
-    let platformUrlPrefilled = false;
+    let lastDevice = null;
+    let platformUrlPassword = '';
 
-    function togglePlatformUrlForm(event) {
-      event.preventDefault();
-      const form = document.getElementById('platform-url-form');
-      form.hidden = !form.hidden;
+    function openPlatformUrlModal() {
+      document.getElementById('platform-url-modal').hidden = false;
+      document.getElementById('platform-url-step-password').hidden = false;
+      document.getElementById('platform-url-step-fields').hidden = true;
+      document.getElementById('platform-url-password').value = '';
+      document.getElementById('platform-url-password-status').textContent = '';
+      document.getElementById('platform-url-password-status').className = 'status-msg';
+    }
+
+    function closePlatformUrlModal() {
+      document.getElementById('platform-url-modal').hidden = true;
+      platformUrlPassword = '';
+    }
+
+    async function submitPlatformUrlPassword() {
+      // Het wachtwoord wordt pas echt gevalideerd bij het opslaan (POST
+      // /api/platform-url) — hier alleen een niet-lege waarde vereisen en
+      // doorschakelen naar de URL-velden, zodat je niet je wachtwoord kwijt-
+      // typt zonder al te weten of de URL's kloppen.
+      const password = document.getElementById('platform-url-password').value.trim();
+      const statusEl = document.getElementById('platform-url-password-status');
+      if (!password) {
+        statusEl.textContent = 'Vul een wachtwoord in.';
+        statusEl.classList.add('error');
+        return;
+      }
+      platformUrlPassword = password;
+      document.getElementById('platform-ws-url-input').value = lastDevice?.platform_ws_url ?? '';
+      document.getElementById('platform-api-url-input').value = lastDevice?.platform_api_url ?? '';
+      document.getElementById('platform-url-step-password').hidden = true;
+      document.getElementById('platform-url-step-fields').hidden = false;
+      document.getElementById('platform-url-status').textContent = '';
+      document.getElementById('platform-url-status').className = 'status-msg';
     }
 
     async function submitPlatformUrl() {
@@ -291,10 +365,10 @@
 
       const platform_ws_url = document.getElementById('platform-ws-url-input').value.trim();
       const platform_api_url = document.getElementById('platform-api-url-input').value.trim();
-      const password = document.getElementById('platform-url-password').value.trim();
+      const password = platformUrlPassword;
 
-      if (!platform_ws_url || !platform_api_url || !password) {
-        statusEl.textContent = 'Vul alle velden in.';
+      if (!platform_ws_url || !platform_api_url) {
+        statusEl.textContent = 'Vul beide velden in.';
         statusEl.classList.add('error');
         return;
       }
@@ -310,7 +384,16 @@
         if (resp.ok) {
           statusEl.textContent = data.message || 'Opgeslagen, agent herstart...';
           statusEl.classList.add('ok');
-          document.getElementById('platform-url-password').value = '';
+          platformUrlPassword = '';
+        } else if (resp.status === 403) {
+          // Fout wachtwoord: terug naar de wachtwoordstap i.p.v. hier te blijven
+          // hangen met velden die toch niet opgeslagen kunnen worden.
+          platformUrlPassword = '';
+          document.getElementById('platform-url-step-fields').hidden = true;
+          document.getElementById('platform-url-step-password').hidden = false;
+          const pwStatus = document.getElementById('platform-url-password-status');
+          pwStatus.textContent = data.detail || 'Onjuist wachtwoord';
+          pwStatus.classList.add('error');
         } else {
           statusEl.textContent = data.detail || 'Opslaan mislukt';
           statusEl.classList.add('error');
@@ -388,15 +471,11 @@
           <div class="row"><span>CPU-temperatuur</span><span>${device.cpu_temp_c != null ? device.cpu_temp_c + ' °C' : '-'}</span></div>
           <div class="row">
             <span>Platform WS-URL</span>
-            <span>${device.platform_ws_url ?? '-'} <a href="#" class="data-toggle" onclick="togglePlatformUrlForm(event)">wijzig</a></span>
+            <span>${device.platform_ws_url ?? '-'} <button type="button" class="icon-btn" title="Wijzig platform-URL" onclick="openPlatformUrlModal()">&#9998;</button></span>
           </div>
           <div class="row"><span>Platform API-URL</span><span>${device.platform_api_url ?? '-'}</span></div>
         `;
-        if (!platformUrlPrefilled) {
-          document.getElementById('platform-ws-url-input').value = device.platform_ws_url ?? '';
-          document.getElementById('platform-api-url-input').value = device.platform_api_url ?? '';
-          platformUrlPrefilled = true;
-        }
+        lastDevice = device;
 
         const plugins = health.plugins || [];
         document.getElementById('plugins').innerHTML = plugins.length
