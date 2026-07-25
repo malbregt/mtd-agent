@@ -115,25 +115,34 @@ async def _run_probe(payload: dict) -> dict:
         return {"success": False, "error": str(e), "elapsed_ms": int((time.monotonic() - start) * 1000)}
 
 
-async def _run_ping(payload: dict) -> dict:
-    """TCP-connect-test naar host:port vanaf de Pi — een lichtgewicht
-    "leeft dit apparaat" check, voor devices zonder bekend HTTP-pad of als
-    eerste stap vóór een echte probe. Geen ICMP (vereist raw sockets/root op
-    de Pi); een geslaagde TCP-handshake is voor dit doel voldoende. Zelfde
-    lokaal-netwerk-restrictie als _run_probe."""
-    host = (payload.get("host") or "").strip()
-    port = int(payload.get("port") or 80)
-    timeout_s = min(float(payload.get("timeout_s") or 5), 30)
-    allow_public = bool(payload.get("allow_public"))
+async def _run_ping_icmp(host: str, timeout_s: float) -> dict:
+    """Echte ICMP-ping via het systeem-`ping`-commando (subprocess) — in
+    tegenstelling tot een TCP-connect-test faalt dit niet zodra een device
+    simpelweg geen dienst op de geteste poort heeft (bv. een Enphase Envoy
+    die niet op poort 80 luistert maar wel gewoon aanspreekbaar is). Werkt
+    zonder dat de agent zelf root hoeft te draaien: de `ping`-binary heeft op
+    Raspbian/Debian standaard de cap_net_raw-capability."""
+    wait_s = max(1, int(round(timeout_s)))
+    start = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", str(wait_s), host,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=wait_s + 2)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        if proc.returncode == 0:
+            return {"success": True, "elapsed_ms": elapsed_ms}
+        detail = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+        return {"success": False, "error": detail[:500] or "Geen reactie op ICMP-ping", "elapsed_ms": elapsed_ms}
+    except Exception as e:
+        return {"success": False, "error": str(e), "elapsed_ms": int((time.monotonic() - start) * 1000)}
 
-    if not host:
-        return {"success": False, "error": "Ontbrekend host"}
 
-    if not allow_public:
-        ok, err = await _check_local_only(host, port)
-        if not ok:
-            return {"success": False, "error": err}
-
+async def _run_ping_tcp(host: str, port: int, timeout_s: float) -> dict:
+    """TCP-connect-test naar host:port — controleert of er specifiek iets
+    luistert op een gekozen poort, i.p.v. of het IP in het algemeen
+    reageert (zie _run_ping_icmp daarvoor)."""
     start = time.monotonic()
     try:
         _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout_s)
@@ -145,6 +154,31 @@ async def _run_ping(payload: dict) -> dict:
         return {"success": True, "elapsed_ms": int((time.monotonic() - start) * 1000)}
     except Exception as e:
         return {"success": False, "error": str(e), "elapsed_ms": int((time.monotonic() - start) * 1000)}
+
+
+async def _run_ping(payload: dict) -> dict:
+    """Checkt of een device online is, zonder een HTTP-aanroep te doen.
+    mode="icmp" (default): echte ping. mode="tcp": connect-test op een
+    specifieke poort. Zelfde lokaal-netwerk-restrictie als _run_probe."""
+    host = (payload.get("host") or "").strip()
+    mode = (payload.get("mode") or "icmp").lower()
+    port = payload.get("port")
+    timeout_s = min(float(payload.get("timeout_s") or 5), 30)
+    allow_public = bool(payload.get("allow_public"))
+
+    if not host:
+        return {"success": False, "error": "Ontbrekend host"}
+    if mode == "tcp" and not port:
+        return {"success": False, "error": "Poort ontbreekt voor een TCP-poorttest"}
+
+    if not allow_public:
+        ok, err = await _check_local_only(host, int(port) if port else 0)
+        if not ok:
+            return {"success": False, "error": err}
+
+    if mode == "tcp":
+        return await _run_ping_tcp(host, int(port), timeout_s)
+    return await _run_ping_icmp(host, timeout_s)
 
 
 # Vendored plugins die met de agent worden meegeleverd (in de repo zelf,
